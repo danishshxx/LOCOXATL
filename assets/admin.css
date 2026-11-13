@@ -1,0 +1,1341 @@
+/* ==========================================================================
+   LOCOXATL — Admin Dashboard & Workshop Production Stylesheet
+   Strictly Monochrome / Apple-Inspired Minimalist Typography & Layout
+   ========================================================================== */
+
+:root {
+  --admin-bg: #f7f7f9;
+  --admin-card: #ffffff;
+  --admin-border: #e6e6e8;
+  --admin-text-main: #111111;
+  --admin-text-muted: #767678;
+  --admin-accent-black: #000000;
+  --admin-font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+}
+
+body.admin-body {
+  background-color: var(--admin-bg);
+  color: var(--admin-text-main);
+  font-family: var(--admin-font);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* --------------------------------------------------------------------------
+   Header & Status Bar
+   -------------------------------------------------------------------------- */
+.admin-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--admin-border);
+  padding: 14px 4%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.admin-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.admin-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  background: #111;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.admin-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.db-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: #eee;
+  padding: 6px 12px;
+  border-radius: 99px;
+  color: #333;
+}
+
+.db-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #999;
+}
+
+.db-dot.connected {
+  background: #00c853;
+  box-shadow: 0 0 6px rgba(0, 200, 83, 0.6);
+}
+
+.db-dot.demo {
+  background: #ffab00;
+}
+
+.button-small {
+  padding: 7px 14px;
+  font-size: 11px;
+  height: 32px;
+}
+
+/* --------------------------------------------------------------------------
+   Auth Gate Modal
+   -------------------------------------------------------------------------- */
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.admin-modal-backdrop[hidden] {
+  display: none !important;
+}
+
+.admin-auth-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--admin-border);
+}
+
+.admin-auth-header h2 {
+  font-size: 24px;
+  letter-spacing: -0.04em;
+  margin: 8px 0 10px;
+}
+
+.admin-auth-header p {
+  font-size: 13px;
+  color: var(--admin-text-muted);
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+.admin-auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.admin-auth-form input {
+  padding: 12px 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.admin-auth-form input:focus {
+  border-color: #000;
+}
+
+.admin-auth-hint {
+  font-size: 11px;
+  color: #888;
+  margin: 12px 0 16px;
+  line-height: 1.4;
+}
+
+.admin-auth-hint code {
+  background: #f0f0f2;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #111;
+  font-weight: 600;
+}
+
+.admin-auth-error {
+  color: #d32f2f;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+/* --------------------------------------------------------------------------
+   Metrics Row
+   -------------------------------------------------------------------------- */
+.admin-metrics-section {
+  padding-top: 36px;
+  padding-bottom: 24px;
+}
+
+.admin-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.admin-section-heading h1 {
+  font-size: 32px;
+  letter-spacing: -0.05em;
+  margin: 4px 0 0;
+}
+
+.admin-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.metric-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+}
+
+.metric-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--admin-text-muted);
+  text-transform: uppercase;
+}
+
+.metric-value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  margin: 10px 0 4px;
+  color: #000;
+}
+
+.metric-foot {
+  font-size: 11px;
+  color: #999;
+}
+
+.metric-card.metric-urgent {
+  border-color: #111;
+  background: #111;
+}
+
+.metric-card.metric-urgent .metric-label,
+.metric-card.metric-urgent .metric-foot {
+  color: #aaa;
+}
+
+.metric-card.metric-urgent .metric-value {
+  color: #fff;
+}
+
+.metric-card.metric-active {
+  border-left: 4px solid #111;
+}
+
+.metric-card.metric-revenue .metric-value {
+  font-size: 22px;
+}
+
+/* --------------------------------------------------------------------------
+   Toolbar & Filters
+   -------------------------------------------------------------------------- */
+.admin-orders-section {
+  padding-bottom: 60px;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.toolbar-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-search .search-icon {
+  position: absolute;
+  left: 14px;
+  font-size: 14px;
+  color: #888;
+}
+
+.toolbar-search input {
+  width: 100%;
+  padding: 13px 40px 13px 38px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.toolbar-search input:focus {
+  border-color: #000;
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #888;
+  cursor: pointer;
+}
+
+.toolbar-status-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.tab-chip {
+  padding: 8px 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: 99px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.tab-chip:hover {
+  border-color: #111;
+  color: #111;
+}
+
+.tab-chip.active {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+}
+
+/* --------------------------------------------------------------------------
+   Orders Table
+   -------------------------------------------------------------------------- */
+.admin-table-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.admin-orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.admin-orders-table th {
+  background: #fafafc;
+  padding: 14px 18px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--admin-text-muted);
+  border-bottom: 1px solid var(--admin-border);
+  text-transform: uppercase;
+}
+
+.admin-orders-table td {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--admin-border);
+  vertical-align: middle;
+}
+
+.admin-orders-table tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-orders-table tr:hover td {
+  background: #fbfbfd;
+}
+
+.order-code-cell {
+  font-family: monospace;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.customer-cell strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.customer-cell span {
+  font-size: 11px;
+  color: #888;
+}
+
+.product-cell strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.product-cell span {
+  font-size: 10px;
+  color: #888;
+}
+
+.amount-cell {
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Status Badges */
+.status-pill {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 99px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-waiting_for_payment {
+  background: #f0f0f2;
+  color: #666;
+  border: 1px solid #ddd;
+}
+
+.status-payment_confirmation_sent {
+  background: #111;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 3px #111;
+}
+
+.status-paid {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #c8e6c9;
+}
+
+.status-in_production {
+  background: #e3f2fd;
+  color: #0d47a1;
+  border: 1px solid #bbdefb;
+}
+
+.status-shipped {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+}
+
+.status-completed {
+  background: #111;
+  color: #fff;
+}
+
+.status-cancelled {
+  background: #ffebee;
+  color: #b71c1c;
+  text-decoration: line-through;
+}
+
+.table-loading,
+.table-empty {
+  text-align: center;
+  padding: 40px !important;
+  color: #888;
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------------------------
+   Pagination
+   -------------------------------------------------------------------------- */
+.admin-pagination {
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--admin-border);
+  background: #fafafc;
+  font-size: 12px;
+}
+
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-current {
+  font-weight: 700;
+  color: #555;
+}
+
+/* --------------------------------------------------------------------------
+   Order Inspection Drawer (Slide-Over Panel)
+   -------------------------------------------------------------------------- */
+.admin-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-drawer-backdrop[hidden] {
+  display: none !important;
+}
+
+.admin-drawer {
+  background: #fff;
+  width: min(940px, 100vw);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -10px 0 50px rgba(0, 0, 0, 0.25);
+  overflow-y: auto;
+  animation: slideDrawer 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawer {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.drawer-header {
+  padding: 24px 30px;
+  border-bottom: 1px solid var(--admin-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 10;
+}
+
+.drawer-header h2 {
+  font-size: 26px;
+  letter-spacing: -0.04em;
+  margin: 4px 0 0;
+  font-family: monospace;
+}
+
+.drawer-close-btn {
+  background: #eee;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.2s;
+}
+
+.drawer-close-btn:hover {
+  background: #111;
+  color: #fff;
+}
+
+.drawer-body {
+  padding: 30px;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 28px;
+}
+
+@media (max-width: 820px) {
+  .drawer-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Column 1: 3D Workshop Customizer View */
+.inspector-card {
+  background: #fbfbfd;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inspector-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--admin-text-muted);
+}
+
+.inspector-badge {
+  background: #111;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.custom-preview {
+  min-height: 280px;
+  background: #f0f0f4;
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.viewer-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  position: relative;
+}
+
+.viewer-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  display: block;
+}
+
+.viewer-hint {
+  position: absolute;
+  bottom: 10px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #888;
+  pointer-events: none;
+}
+
+.viewer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--admin-border);
+}
+
+.viewer-toolbar button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 99px;
+  background: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.viewer-toolbar button:hover {
+  border-color: #111;
+}
+
+.viewer-toolbar button[aria-pressed="true"] {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.bom-section h4 {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  margin: 0 0 10px;
+  color: #555;
+}
+
+.bom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bom-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  padding: 8px 12px;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.bom-item strong {
+  font-weight: 700;
+}
+
+.bom-item span {
+  color: #777;
+  font-size: 10px;
+}
+
+.raw-json-wrap {
+  border-top: 1px solid var(--admin-border);
+  padding-top: 12px;
+}
+
+.raw-json-code {
+  background: #111;
+  color: #00ff66;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 10px;
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 8px;
+}
+
+/* Column 2: Management & Customer */
+.drawer-col-mgmt {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.status-action-card,
+.customer-info-card,
+.order-summary-card,
+.fulfillment-card,
+.audit-card {
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+
+.current-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.status-badge-lg {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 6px 14px;
+  border-radius: 99px;
+  text-transform: uppercase;
+}
+
+.quick-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.btn-action-verify {
+  background: #111;
+  color: #fff;
+  border: 1px solid #111;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: opacity 0.2s;
+}
+
+.btn-action-verify:hover {
+  opacity: 0.85;
+}
+
+.btn-action-secondary {
+  background: #fff;
+  color: #111;
+  border: 1px solid var(--admin-border);
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-action-secondary:hover {
+  border-color: #111;
+}
+
+.manual-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-border);
+}
+
+.manual-status-row label {
+  font-size: 11px;
+  color: #777;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.manual-status-row select {
+  padding: 6px 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  font-size: 11px;
+  outline: none;
+}
+
+.card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--admin-text-muted);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+}
+
+.wa-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #25d366;
+  color: #fff;
+  padding: 5px 10px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.wa-action-btn:hover {
+  opacity: 0.9;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.info-label {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #999;
+}
+
+.info-val {
+  font-size: 12px;
+  color: #222;
+}
+
+.info-val-address,
+.info-val-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  background: #f8f8fa;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--admin-border);
+}
+
+.items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.order-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--admin-border);
+  font-size: 12px;
+}
+
+.order-item-row:last-child {
+  border-bottom: none;
+}
+
+.total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--admin-border);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.total-row strong {
+  font-size: 16px;
+}
+
+.shipping-inputs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.fulfillment-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #555;
+  text-transform: uppercase;
+}
+
+.fulfillment-card input,
+.fulfillment-card textarea {
+  padding: 8px 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.fulfillment-card input:focus,
+.fulfillment-card textarea:focus {
+  border-color: #111;
+}
+
+.form-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.save-indicator {
+  font-size: 11px;
+  font-weight: 700;
+  color: #00c853;
+}
+
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  padding-left: 12px;
+  border-left: 2px solid #111;
+}
+
+.timeline-item span {
+  font-size: 9px;
+  color: #999;
+}
+
+.empty-timeline {
+  font-size: 11px;
+  color: #999;
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Toast
+   -------------------------------------------------------------------------- */
+.admin-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #111;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  z-index: 120;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.25s ease;
+  pointer-events: none;
+}
+
+.admin-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.admin-accounting-section {
+  padding: 36px 4% 64px;
+  scroll-margin-top: 88px;
+}
+
+.accounting-intro,
+.accounting-reports-panel > p {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.accounting-toolbar,
+.accounting-custom-dates {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.accounting-toolbar label,
+.accounting-custom-dates label,
+.accounting-form label,
+.accounting-transactions-panel .card-heading label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #555;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.accounting-toolbar select,
+.accounting-custom-dates input,
+.accounting-form input,
+.accounting-form select,
+.accounting-form textarea,
+.accounting-category-form input,
+.accounting-transactions-panel .card-heading select {
+  min-height: 36px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 8px 10px;
+  color: #111;
+  font: inherit;
+}
+
+.accounting-custom-dates input {
+  width: 140px;
+}
+
+.accounting-metrics-grid {
+  margin-bottom: 16px;
+}
+
+.accounting-period-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.accounting-period-card,
+.accounting-panel {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-md);
+}
+
+.accounting-period-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+}
+
+.accounting-period-card span,
+.accounting-period-card small {
+  color: var(--admin-text-muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.accounting-period-card strong {
+  font-size: 18px;
+}
+
+.accounting-panel {
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.accounting-panel .card-heading {
+  margin-bottom: 14px;
+}
+
+.accounting-chart-panel canvas {
+  display: block;
+  width: 100%;
+  height: 180px;
+}
+
+.accounting-chart-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  color: var(--admin-text-muted);
+  font-size: 10px;
+}
+
+.accounting-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.accounting-chart-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.income-legend {
+  background: #111;
+}
+
+.expense-legend {
+  background: #aaa;
+}
+
+.accounting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.accounting-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.accounting-form textarea {
+  resize: vertical;
+}
+
+.accounting-wide-field {
+  grid-column: 1 / -1;
+}
+
+.accounting-form-actions,
+.accounting-export-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.accounting-category-manager {
+  border-top: 1px solid var(--admin-border);
+  margin-top: 22px;
+  padding-top: 16px;
+}
+
+.accounting-category-form {
+  display: flex;
+  gap: 8px;
+}
+
+.accounting-category-form input {
+  flex: 1;
+}
+
+.accounting-category-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.accounting-category-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #eee;
+  padding: 7px 0;
+  font-size: 11px;
+}
+
+.accounting-export-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.accounting-export-grid button:last-child {
+  grid-column: 1 / -1;
+}
+
+.accounting-table {
+  min-width: 930px;
+}
+
+.accounting-row-actions {
+  white-space: nowrap;
+}
+
+.accounting-row-actions .text-link + .text-link {
+  margin-left: 8px;
+}
+
+.accounting-correction-note {
+  display: block;
+  color: #777;
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+.cashbook-type {
+  display: inline-block;
+  border-radius: 99px;
+  background: #eee;
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.cashbook-type-income {
+  background: #111;
+  color: #fff;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .accounting-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-period-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-accounting-section {
+    padding: 28px 4% 48px;
+  }
+
+  .accounting-toolbar,
+  .accounting-toolbar label {
+    width: 100%;
+  }
+
+  .accounting-toolbar select {
+    width: 100%;
+  }
+
+  .accounting-custom-dates {
+    width: 100%;
+  }
+
+  .accounting-custom-dates label,
+  .accounting-custom-dates input {
+    width: 100%;
+  }
+
+  .accounting-form {
+    grid-template-columns: 1fr;
+  }
+
+  .accounting-wide-field {
+    grid-column: auto;
+  }
+}

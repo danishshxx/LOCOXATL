@@ -1,0 +1,23 @@
+LOCOXATL MODULAR MONOLITH — STOREFRONT ROUTE MAP
+
+Customer journey:
+  /                              Homepage / brand introduction
+  /collections                   Artist and group directory
+  /collections/[artistSlug]      Artist-specific product collection
+  /studio/[artistSlug]/[productSlug]  Custom Studio
+  /checkout                      Guest details and order review
+  /payment/[orderCode]           QRIS instructions and WhatsApp handoff
+  /order/[orderCode]             Order confirmation/status
+
+Domain module ownership:
+  catalog       Artist/group records, collections, product records
+  customizer    Valid component combinations and saved configuration
+  pricing       Authoritative price calculation
+  orders        Order creation and lifecycle
+  shipping      Address validation and delivery options/fees
+  payments      Payment instructions, proof, admin verification
+  inventory     Component and product stock
+  identity      Admin authentication and authorization
+  store-settings QRIS asset, official WhatsApp number, store profile
+
+The current static HTML prototype uses localStorage only. It is not the production Modular Monolith backend.

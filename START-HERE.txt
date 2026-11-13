@@ -1,0 +1,59 @@
+LOCOXATL — EDITABLE MULTI-PAGE STOREFRONT
+=========================================
+
+THIS IS A MULTI-PAGE WEBSITE, NOT ONE LONG PAGE.
+
+ACTIVE PAGES
+------------
+1. index.html          Homepage / brand introduction
+2. shop.html           Artist collection directory
+3. artist.html         Product list for the selected artist
+4. studio.html         Custom Studio / live keychain preview
+5. checkout.html       Customer and delivery details
+6. payment.html        QRIS information and WhatsApp confirmation
+7. order-success.html  Order confirmation
+
+HOW TO RUN ON WINDOWS
+---------------------
+1. Extract the entire ZIP folder first. Do not run the website from inside the ZIP.
+2. Install Node.js LTS from https://nodejs.org/ if it is not installed.
+3. Open this folder in File Explorer.
+4. Double-click start-preview.bat.
+5. Wait for your browser to open. The address will be http://localhost:4173,
+   or another nearby port if 4173 is already being used by another project.
+6. Click Buy Now on the homepage. It should open the separate Artist Collection page.
+
+IMPORTANT PORT NOTE
+-------------------
+The preview server automatically chooses another free port when 4173 is busy.
+This prevents an older LOCOXATL preview from appearing by mistake.
+Keep the Command Prompt window open while testing the website.
+Press Ctrl+C in that window to stop the preview server.
+
+HOW TO EDIT
+-----------
+- Homepage text and sections: index.html
+- Artist directory: shop.html
+- Artist and product data: src/catalog.js
+- Artist product page layout: artist.html
+- Artist product page rendering: src/artist-page.js
+- Custom Studio layout: studio.html
+- Custom Studio behavior and live preview: src/studio.js
+- Price calculation: src/pricing.js
+- Checkout layout and form: checkout.html / src/checkout.js
+- Payment page: payment.html / src/payment.js
+- Shared header and footer: src/site-shell.js
+- All visual styles and responsive rules: styles.css
+- Local preview server: server.js
+
+The old one-page versions are stored in archive/legacy-single-page/ and are NOT
+used by the active website.
+
+TESTS
+-----
+Open Command Prompt in this folder and run:
+  npm test
+
+The current project is an editable static front-end prototype. QRIS is a
+placeholder, WhatsApp needs the official admin number, and order storage uses
+this browser's localStorage. It is not yet connected to a production database.

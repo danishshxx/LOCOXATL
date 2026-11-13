@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#fff" /><meta name="description" content="Build your own LOCOXATL modular keychain." />
+  <title>Custom Studio — LOCOXATL</title><link rel="icon" type="image/png" href="assets/brand/favicon.png" />
+  <link rel="preload" href="assets/fonts/Inter-Regular.otf" as="font" type="font/otf" crossorigin /><link rel="stylesheet" href="styles.css" />
+  <script type="importmap">{"imports":{"three":"./assets/vendor/three/three.module.js","three/addons/":"./assets/vendor/three/addons/"}}</script>
+</head>
+<body class="inner-page studio-page">
+  <div class="announcement"><span>CUSTOM. CLEAN. BOLD.</span><span>MAKE IT YOURS <span aria-hidden="true">↗</span></span></div>
+  <div data-site-header></div>
+  <main class="page-main">
+    <section class="studio-page-heading section-wrap reveal"><div class="breadcrumb"><a href="index.html">Home</a><span>/</span><a href="shop.html">Collections</a><span>/</span><a id="studioArtistLink" href="shop.html">Artist</a><span>/</span><span>Custom Studio</span></div><div class="eyebrow">LOCOXATL / CUSTOM STUDIO</div><h1>Make it<br /><span>uniquely yours.</span></h1><p id="studioIntro">Start with your selected design, then add the details that make it personal.</p><div class="studio-context"><span id="studioArtistName">ARTIST COLLECTION</span><span id="studioProductName">SELECTED BASE</span></div></section>
+    <section class="section-wrap studio-wrap studio-route-wrap">
+      <div class="studio-builder reveal">
+        <div class="builder-topbar"><span><i class="live-dot"></i> LIVE CUSTOM STUDIO</span><span>LOCOXATL / PERSONALIZE</span></div>
+        <div class="builder-layout">
+          <div class="builder-preview-panel">
+            <div class="preview-caption"><span>YOUR COMBINATION</span><span id="previewCount">02 PIECES</span></div>
+            <div class="custom-preview" id="customPreview">
+              <div class="viewer-stage" id="studioViewerStage" data-viewer="loading">
+                <canvas class="viewer-canvas" id="studioViewerCanvas" role="img" aria-label="Interactive 3D preview of your keychain"></canvas>
+                <p class="viewer-hint" id="viewerHint">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A PART</p>
+              </div>
+              <div class="preview-fallback" id="studioPreviewFallback">
+                <svg viewBox="0 0 400 420" role="img" aria-label="Live keychain preview"><defs><linearGradient id="previewMetal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#888"/><stop offset="1" stop-color="#fff"/></linearGradient><linearGradient id="previewWhite" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ccc"/></linearGradient></defs><ellipse cx="200" cy="370" rx="100" ry="12" fill="#000" opacity=".1"/><circle id="previewRing" cx="200" cy="65" r="43" fill="none" stroke="#aaa" stroke-width="11"/><circle cx="200" cy="65" r="43" fill="none" stroke="#fff" stroke-width="4"/><path d="M200 108v36" stroke="url(#previewMetal)" stroke-width="9" stroke-linecap="round"/><circle cx="200" cy="150" r="9" fill="none" stroke="#ddd" stroke-width="6"/><path d="M200 160v23" stroke="#ddd" stroke-width="8" stroke-linecap="round"/><g id="previewBase"><path d="M200 199c-27-37-78-21-69 23 7 34 69 76 69 76s62-42 69-76c9-44-42-60-69-23Z" fill="url(#previewWhite)" stroke="#c9c9c9" stroke-width="3"/></g><g id="previewAddon"></g><g id="previewInitial"></g></svg>
+              </div>
+            </div>
+            <div class="viewer-toolbar" id="viewerToolbar" role="group" aria-label="3D view controls">
+              <div class="viewer-toolbar-group"><span class="viewer-toolbar-label">VIEW</span><button type="button" id="viewerExplode" aria-pressed="false">Explode</button><button type="button" id="viewerAssemble" aria-pressed="false">Assemble</button><button type="button" id="viewerReset">Reset camera</button></div>
+              <span class="viewer-badge" id="viewerBadge">3D VIEW</span>
+            </div>
+            <div class="viewer-inspector" id="viewerInspector">
+              <div class="inspector-row"><span id="viewerSelectionName">NO PART SELECTED</span><span id="viewerSelectionMeta">CLICK A PART TO INSPECT</span></div>
+              <div class="inspector-row inspector-controls"><div class="inspector-swatches" id="viewerSwatches" hidden></div><button type="button" class="viewer-visibility" id="viewerVisibilityToggle" hidden>Hide part</button></div>
+              <div class="inspector-parts" id="viewerPartList" aria-label="Product parts"></div>
+            </div>
+            <div class="preview-footer"><span>LIVE PREVIEW</span><span>YOUR DESIGN / 1:1</span></div>
+          </div>
+          <div class="builder-controls">
+            <div class="builder-step"><div class="step-heading"><span class="step-index">01</span><div><h3>Choose your base</h3><p>Change the main charm shape.</p></div></div><div class="choice-grid base-choices"><button class="choice-button selected" data-base="heart" data-price="45000"><span class="choice-icon heart-icon">♡</span><span>Heart</span></button><button class="choice-button" data-base="star" data-price="45000"><span class="choice-icon star-icon">✳</span><span>Star</span></button><button class="choice-button" data-base="bow" data-price="49000"><span class="choice-icon bow-icon">∞</span><span>Ribbon</span></button></div></div>
+            <div class="builder-step"><div class="step-heading"><span class="step-index">02</span><div><h3>Add your details</h3><p>Little things make it yours.</p></div></div><div class="addon-list"><label class="addon-option"><span class="addon-visual pearl-visual"></span><span class="addon-name">Pearl drop <small>Rp8.000</small></span><input type="checkbox" data-addon="pearl" data-price="8000" /><i class="custom-check"></i></label><label class="addon-option"><span class="addon-visual star-visual">✳</span><span class="addon-name">Mini star <small>Rp12.000</small></span><input type="checkbox" data-addon="star" data-price="12000" /><i class="custom-check"></i></label><label class="addon-option"><span class="addon-visual initial-visual">A</span><span class="addon-name">Your initial <small>Rp5.000</small></span><input type="checkbox" id="initialToggle" data-addon="initial" data-price="5000" /><i class="custom-check"></i></label></div><input class="initial-input" id="initialText" maxlength="1" placeholder="Enter one letter" aria-label="Your initial" disabled /></div>
+            <div class="builder-step"><div class="step-heading"><span class="step-index">03</span><div><h3>Choose your clasp</h3><p>The finishing touch.</p></div></div><div class="clasp-choices"><button class="clasp-choice selected" data-clasp="silver" data-price="7000"><span class="clasp-swatch silver-swatch"></span>Silver <small>+Rp7k</small></button><button class="clasp-choice" data-clasp="black" data-price="5000"><span class="clasp-swatch black-swatch"></span>Black <small>+Rp5k</small></button></div></div>
+            <div class="builder-total"><div><span>YOUR TOTAL</span><strong id="builderPrice">Rp52.000</strong></div><button class="button button-dark" id="continueToCheckout">Continue to checkout <span>↗</span></button></div>
+            <p class="builder-disclaimer">This is a preview configuration. Final production may vary slightly from the on-screen composition.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <div data-site-footer></div>
+  <script src="src/pricing.js"></script><script src="src/options.js"></script><script src="src/catalog.js"></script><script src="src/site-shell.js"></script><script src="src/studio.js"></script>
+</body>
+</html>

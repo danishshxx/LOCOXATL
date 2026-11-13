@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111" />
+  <meta name="description" content="LOCOXATL Admin & Workshop Production Dashboard." />
+  <title>Admin Dashboard — LOCOXATL</title>
+  <link rel="icon" type="image/png" href="assets/brand/favicon.png" />
+  <link rel="preload" href="assets/fonts/Inter-Regular.otf" as="font" type="font/otf" crossorigin />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="assets/admin.css" />
+  <script type="importmap">{"imports":{"three":"./assets/vendor/three/three.module.js","three/addons/":"./assets/vendor/three/addons/"}}</script>
+</head>
+<body class="inner-page admin-body">
+
+  <!-- Top Announcement Bar -->
+  <div class="announcement">
+    <span>LOCOXATL / ADMIN & WORKSHOP PORTAL</span>
+    <span>STATUS: <strong id="topDbStatus">CHECKING...</strong></span>
+  </div>
+
+  <!-- Admin Navigation Header -->
+  <header class="site-header admin-header">
+    <div class="admin-brand-wrap">
+      <a class="brand" href="admin.html" aria-label="Admin Dashboard">
+        <img src="assets/brand/locoxatl-wordmark-black.png" alt="LOCOXATL" />
+      </a>
+      <span class="admin-badge">ADMIN DASHBOARD</span>
+    </div>
+    <div class="admin-nav-actions">
+      <span class="db-pill" id="dbHealthPill">
+        <i class="db-dot" id="dbDot"></i>
+        <span id="dbPillText">Connecting...</span>
+      </span>
+      <a href="index.html" class="button button-outline button-small" target="_blank" rel="noopener">
+        Storefront <span>↗</span>
+      </a>
+      <a href="#accountingSection" class="button button-outline button-small" id="accountingNavLink" hidden>
+        Accounting
+      </a>
+      <button type="button" class="button button-dark button-small" id="logoutButton" hidden>
+        Sign out
+      </button>
+    </div>
+  </header>
+
+  <!-- Login Gate Modal -->
+  <div class="admin-modal-backdrop" id="loginBackdrop">
+    <div class="admin-auth-card">
+      <div class="admin-auth-header">
+        <span class="eyebrow">RESTRICTED ACCESS</span>
+        <h2>Admin Authentication</h2>
+        <p>Sign in to access order management, accounting and 3D production tooling.</p>
+      </div>
+      <form id="adminLoginForm" class="admin-auth-form">
+        <label>
+          Username
+          <input
+            type="text"
+            id="adminUsernameInput"
+            name="username"
+            placeholder="Username"
+            autocomplete="username"
+            required
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            id="adminPasswordInput"
+            name="password"
+            placeholder="Password"
+            autocomplete="current-password"
+            required
+          />
+        </label>
+        <p class="admin-auth-error" id="loginError" hidden></p>
+        <button type="submit" class="button button-dark button-full" id="loginSubmitBtn">
+          Sign In <span>↗</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Dashboard Content -->
+  <main class="admin-main" id="adminMain" hidden>
+    
+    <!-- KPI Metrics Row -->
+    <section class="section-wrap admin-metrics-section">
+      <div class="admin-section-heading">
+        <div>
+          <span class="eyebrow">OVERVIEW & ANALYTICS</span>
+          <h1>Operations Control</h1>
+        </div>
+        <div class="heading-actions">
+          <button type="button" class="button button-outline button-small" id="refreshBtn">
+            Refresh Data ⟳
+          </button>
+        </div>
+      </div>
+
+      <div class="admin-metrics-grid">
+        <div class="metric-card">
+          <span class="metric-label">TOTAL ORDERS</span>
+          <strong class="metric-value" id="metricTotalOrders">0</strong>
+          <span class="metric-foot">All customer submissions</span>
+        </div>
+        <div class="metric-card metric-urgent" id="cardPendingVerification">
+          <span class="metric-label">NEEDS VERIFICATION</span>
+          <strong class="metric-value" id="metricPendingVerification">0</strong>
+          <span class="metric-foot">Payment proof submitted via WA</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">WAITING PAYMENT</span>
+          <strong class="metric-value" id="metricWaitingPayment">0</strong>
+          <span class="metric-foot">Unpaid QRIS checkout</span>
+        </div>
+        <div class="metric-card metric-active">
+          <span class="metric-label">IN WORKSHOP</span>
+          <strong class="metric-value" id="metricInProduction">0</strong>
+          <span class="metric-foot">Active 3D crafting & assembly</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">SHIPPED & DONE</span>
+          <strong class="metric-value" id="metricShippedDone">0</strong>
+          <span class="metric-foot">Fulfilled orders</span>
+        </div>
+        <div class="metric-card metric-revenue">
+          <span class="metric-label">VERIFIED REVENUE</span>
+          <strong class="metric-value" id="metricTotalRevenue">Rp0</strong>
+          <span class="metric-foot">Paid & in-process revenue</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Orders Management Section -->
+    <section class="section-wrap admin-orders-section">
+      
+      <!-- Filter and Search Toolbar -->
+      <div class="admin-toolbar">
+        <div class="toolbar-search">
+          <span class="search-icon">🔍</span>
+          <input
+            type="search"
+            id="orderSearchInput"
+            placeholder="Search by order #, customer name, phone, or email..."
+            aria-label="Search orders"
+          />
+          <button type="button" id="clearSearchBtn" class="clear-search-btn" hidden>×</button>
+        </div>
+
+        <div class="toolbar-status-tabs" id="statusTabs" role="tablist">
+          <button type="button" class="tab-chip active" data-status="">All Orders (<span id="countAll">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="payment_confirmation_sent">Proof Sent (<span id="countProof">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="waiting_for_payment">Waiting (<span id="countWaiting">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="paid">Paid (<span id="countPaid">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="in_production">In Workshop (<span id="countProd">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="shipped">Shipped (<span id="countShipped">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="completed">Completed (<span id="countCompleted">0</span>)</button>
+          <button type="button" class="tab-chip" data-status="cancelled">Cancelled (<span id="countCancelled">0</span>)</button>
+        </div>
+      </div>
+
+      <!-- Orders Table Container -->
+      <div class="admin-table-card">
+        <div class="table-wrap">
+          <table class="admin-orders-table">
+            <thead>
+              <tr>
+                <th>ORDER REF</th>
+                <th>DATE</th>
+                <th>CUSTOMER</th>
+                <th>PRODUCT & CUSTOMIZATION</th>
+                <th>AMOUNT</th>
+                <th>STATUS</th>
+                <th class="th-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+              <tr>
+                <td colspan="7" class="table-loading">Loading order records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Controls -->
+        <div class="admin-pagination" id="adminPagination">
+          <span class="pagination-info" id="paginationInfo">Showing 0 orders</span>
+          <div class="pagination-buttons">
+            <button type="button" class="button button-outline button-small" id="prevPageBtn" disabled>← Previous</button>
+            <span class="page-current" id="pageCurrentDisplay">1 / 1</span>
+            <button type="button" class="button button-outline button-small" id="nextPageBtn" disabled>Next →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-wrap admin-accounting-section" id="accountingSection">
+      <div class="admin-section-heading">
+        <div>
+          <span class="eyebrow">CASH FLOW & REPORTS</span>
+          <h1>Accounting</h1>
+          <p class="accounting-intro">Operational cashbook from verified orders and recorded expenses.</p>
+        </div>
+        <div class="accounting-toolbar">
+          <label>
+            Date range
+            <select id="accountingPeriod">
+              <option value="today">Today</option>
+              <option value="week">This Week</option>
+              <option value="month" selected>This Month</option>
+              <option value="year">This Year</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </label>
+          <div class="accounting-custom-dates" id="accountingCustomDates" hidden>
+            <label>From <input type="date" id="accountingDateFrom" /></label>
+            <label>To <input type="date" id="accountingDateTo" /></label>
+          </div>
+          <button type="button" class="button button-outline button-small" id="refreshAccountingBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="admin-metrics-grid accounting-metrics-grid">
+        <div class="metric-card metric-revenue">
+          <span class="metric-label">TOTAL VERIFIED INCOME</span>
+          <strong class="metric-value" id="cashbookTotalIncome">Rp0</strong>
+          <span class="metric-foot">Recorded paid orders</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">TOTAL EXPENSES</span>
+          <strong class="metric-value" id="cashbookTotalExpenses">Rp0</strong>
+          <span class="metric-foot">Current effective expense records</span>
+        </div>
+        <div class="metric-card metric-active">
+          <span class="metric-label">CURRENT CASH BALANCE</span>
+          <strong class="metric-value" id="cashbookBalance">Rp0</strong>
+          <span class="metric-foot">All-time income minus expenses</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-label">SELECTED RANGE CASH FLOW</span>
+          <strong class="metric-value" id="cashbookRangeBalance">Rp0</strong>
+          <span class="metric-foot" id="cashbookRangeLabel">This month</span>
+        </div>
+      </div>
+
+      <div class="accounting-period-grid" aria-label="Financial summaries">
+        <div class="accounting-period-card"><span>DAILY</span><strong id="dailyCashSummary">Rp0</strong><small>Income less expenses</small></div>
+        <div class="accounting-period-card"><span>WEEKLY</span><strong id="weeklyCashSummary">Rp0</strong><small>Income less expenses</small></div>
+        <div class="accounting-period-card"><span>MONTHLY</span><strong id="monthlyCashSummary">Rp0</strong><small>Income less expenses</small></div>
+        <div class="accounting-period-card"><span>YEARLY</span><strong id="yearlyCashSummary">Rp0</strong><small>Income less expenses</small></div>
+      </div>
+
+      <div class="accounting-panel accounting-chart-panel">
+        <div class="card-heading">
+          <span>INCOME & EXPENSE TREND</span>
+          <span id="cashbookChartRange"></span>
+        </div>
+        <canvas id="cashbookChart" height="180" aria-label="Daily income and expense chart" role="img"></canvas>
+        <div class="accounting-chart-legend"><span><i class="income-legend"></i>Income</span><span><i class="expense-legend"></i>Expenses</span></div>
+      </div>
+
+      <div class="accounting-layout">
+        <section class="accounting-panel">
+          <div class="card-heading">
+            <span id="expenseFormHeading">RECORD AN EXPENSE</span>
+            <span>Append-only corrections preserve history</span>
+          </div>
+          <form id="cashbookExpenseForm" class="accounting-form">
+            <label>Date <input type="date" id="expenseDate" required /></label>
+            <label>Category <select id="expenseCategory" required></select></label>
+            <label>Description <input type="text" id="expenseDescription" maxlength="255" required /></label>
+            <label>Amount (IDR) <input type="number" id="expenseAmount" min="1" step="1" inputmode="numeric" required /></label>
+            <label>Payment method <input type="text" id="expensePaymentMethod" maxlength="80" placeholder="Cash, bank transfer..." required /></label>
+            <label class="accounting-wide-field">Notes <textarea id="expenseNotes" rows="2" maxlength="2000"></textarea></label>
+            <label class="accounting-wide-field" id="correctionNoteWrap" hidden>
+              Correction reason <textarea id="expenseCorrectionNote" rows="2" maxlength="500"></textarea>
+            </label>
+            <div class="accounting-form-actions accounting-wide-field">
+              <button type="submit" class="button button-dark button-small" id="expenseSubmitBtn">Record Expense</button>
+              <button type="button" class="button button-outline button-small" id="cancelExpenseCorrectionBtn" hidden>Cancel Correction</button>
+            </div>
+          </form>
+
+          <div class="accounting-category-manager">
+            <div class="card-heading"><span>EXPENSE CATEGORIES</span></div>
+            <form id="cashbookCategoryForm" class="accounting-category-form">
+              <label class="sr-only" for="newExpenseCategory">New expense category</label>
+              <input type="text" id="newExpenseCategory" maxlength="100" placeholder="Add a category" required />
+              <button type="submit" class="button button-outline button-small">Add</button>
+            </form>
+            <ul id="expenseCategoryList" class="accounting-category-list"></ul>
+          </div>
+        </section>
+
+        <section class="accounting-panel accounting-reports-panel">
+          <div class="card-heading"><span>EXCEL REPORTS</span></div>
+          <p>Exports use the selected date range and include a Summary, Orders, Income, Expenses and Cashbook worksheet.</p>
+          <div class="accounting-export-grid">
+            <button type="button" class="button button-outline button-small" data-export-scope="orders">Export Orders</button>
+            <button type="button" class="button button-outline button-small" data-export-scope="income">Export Income</button>
+            <button type="button" class="button button-outline button-small" data-export-scope="expenses">Export Expenses</button>
+            <button type="button" class="button button-outline button-small" data-export-scope="cashbook">Export Cashbook</button>
+            <button type="button" class="button button-dark button-small" data-export-scope="summary">Financial Summary</button>
+          </div>
+        </section>
+      </div>
+
+      <section class="accounting-panel accounting-transactions-panel">
+        <div class="card-heading">
+          <span>TRANSACTION HISTORY</span>
+          <label>Type
+            <select id="cashbookTypeFilter">
+              <option value="">All transactions</option>
+              <option value="income">Income</option>
+              <option value="expense">Expenses</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="admin-orders-table accounting-table">
+            <thead>
+              <tr><th>DATE</th><th>TYPE</th><th>CATEGORY</th><th>DESCRIPTION</th><th>PAYMENT</th><th>ORDER / ADMIN</th><th>AMOUNT</th><th>ACTIONS</th></tr>
+            </thead>
+            <tbody id="cashbookEntriesBody"><tr><td colspan="8" class="table-loading">Loading cashbook...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="admin-pagination">
+          <span class="pagination-info" id="cashbookPaginationInfo">Showing 0 transactions</span>
+          <div class="pagination-buttons">
+            <button type="button" class="button button-outline button-small" id="cashbookPrevPageBtn" disabled>← Previous</button>
+            <span class="page-current" id="cashbookPageDisplay">1 / 1</span>
+            <button type="button" class="button button-outline button-small" id="cashbookNextPageBtn" disabled>Next →</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
+  </main>
+
+  <!-- Detail & 3D Production Inspector Drawer / Modal -->
+  <div class="admin-drawer-backdrop" id="detailDrawerBackdrop" hidden>
+    <div class="admin-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerOrderTitle">
+      
+      <!-- Drawer Top Bar -->
+      <div class="drawer-header">
+        <div>
+          <span class="eyebrow" id="drawerEyebrow">ORDER INSPECTION</span>
+          <h2 id="drawerOrderTitle">LX-DEMO</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" id="drawerCloseBtn" aria-label="Close details">✕</button>
+      </div>
+
+      <!-- Drawer Content: Two Column Layout -->
+      <div class="drawer-body">
+        
+        <!-- Column 1: 3D Workshop Customizer View & BOM -->
+        <div class="drawer-col-3d">
+          <div class="inspector-card">
+            <div class="inspector-card-header">
+              <span>WORKSHOP 3D VIEWER</span>
+              <span class="inspector-badge" id="viewerBadge">1:1 SCALE</span>
+            </div>
+
+            <!-- 3D Stage -->
+            <div class="custom-preview" id="adminCustomPreview">
+              <div class="viewer-stage" id="adminViewerStage" data-viewer="loading">
+                <canvas class="viewer-canvas" id="adminViewerCanvas" role="img" aria-label="Workshop 3D keychain model"></canvas>
+                <p class="viewer-hint" id="adminViewerHint">DRAG TO ROTATE · SCROLL TO ZOOM</p>
+              </div>
+              <div class="preview-fallback" id="adminPreviewFallback" hidden>
+                <p class="fallback-note">3D canvas initializing...</p>
+              </div>
+            </div>
+
+            <!-- 3D Viewer Toolbar -->
+            <div class="viewer-toolbar" id="adminViewerToolbar">
+              <div class="viewer-toolbar-group">
+                <span class="viewer-toolbar-label">VIEW</span>
+                <button type="button" id="adminViewerExplode" aria-pressed="false">Explode</button>
+                <button type="button" id="adminViewerAssemble" aria-pressed="false">Assemble</button>
+                <button type="button" id="adminViewerReset">Reset Camera</button>
+              </div>
+            </div>
+
+            <!-- 3D Part Inspector Details -->
+            <div class="viewer-inspector" id="adminViewerInspector">
+              <div class="inspector-row">
+                <span id="adminSelectionName">NO PART SELECTED</span>
+                <span id="adminSelectionMeta">CLICK A PART IN 3D TO INSPECT</span>
+              </div>
+              <div class="inspector-parts" id="adminViewerPartList" aria-label="Assembly components"></div>
+            </div>
+
+            <!-- Bill of Materials (BOM) Specs -->
+            <div class="bom-section">
+              <h4>PRODUCTION SPECIFICATION (BOM)</h4>
+              <div class="bom-list" id="bomList">
+                <!-- Injected via JS -->
+              </div>
+            </div>
+
+            <!-- Raw JSON Toggle -->
+            <div class="raw-json-wrap">
+              <button type="button" class="text-link" id="toggleRawJsonBtn">Show 3D Configuration JSON ▾</button>
+              <pre class="raw-json-code" id="rawJsonCode" hidden></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Column 2: Order Management, Customer Info, Workflow Actions -->
+        <div class="drawer-col-mgmt">
+          
+          <!-- Current Status Banner & Quick Action Buttons -->
+          <div class="status-action-card">
+            <div class="current-status-row">
+              <span class="eyebrow">CURRENT STATUS</span>
+              <div class="status-badge-lg" id="detailStatusBadge">WAITING FOR PAYMENT</div>
+            </div>
+
+            <div class="quick-status-actions" id="quickStatusActions">
+              <!-- Buttons dynamically rendered based on status -->
+            </div>
+
+            <div class="manual-status-row">
+              <label>
+                Override Status:
+                <select id="manualStatusSelect">
+                  <option value="waiting_for_payment">Waiting for payment</option>
+                  <option value="payment_confirmation_sent">Payment confirmation sent</option>
+                  <option value="paid">Paid (Verified)</option>
+                  <option value="in_production">In Production</option>
+                  <option value="shipped">Shipped</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+              <button type="button" class="button button-outline button-small" id="applyManualStatusBtn">
+                Update
+              </button>
+            </div>
+          </div>
+
+          <!-- Customer & Contact Card -->
+          <div class="customer-info-card">
+            <div class="card-heading">
+              <span>CUSTOMER & DELIVERY</span>
+              <a href="#" id="customerWhatsAppBtn" target="_blank" rel="noopener" class="wa-action-btn">
+                <span>WhatsApp Customer</span> ↗
+              </a>
+            </div>
+            <div class="info-grid">
+              <div class="info-item">
+                <span class="info-label">FULL NAME</span>
+                <strong class="info-val" id="custName">—</strong>
+              </div>
+              <div class="info-item">
+                <span class="info-label">PHONE / WHATSAPP</span>
+                <span class="info-val" id="custPhone">—</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">EMAIL</span>
+                <span class="info-val" id="custEmail">—</span>
+              </div>
+              <div class="info-item full-width">
+                <span class="info-label">DELIVERY ADDRESS</span>
+                <p class="info-val-address" id="custAddress">—</p>
+              </div>
+              <div class="info-item full-width" id="custNoteWrap" hidden>
+                <span class="info-label">CUSTOMER NOTE</span>
+                <p class="info-val-note" id="custNote">—</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Order Summary Card -->
+          <div class="order-summary-card">
+            <div class="card-heading">
+              <span>ORDERED ITEMS & PRICING</span>
+              <span id="detailCreatedAt">--/--/----</span>
+            </div>
+            <div class="items-list" id="detailItemsList">
+              <!-- Items list injected via JS -->
+            </div>
+            <div class="total-row">
+              <span>TOTAL ORDER VALUE</span>
+              <strong id="detailTotalAmount">Rp0</strong>
+            </div>
+          </div>
+
+          <!-- Fulfillment & Internal Workshop Notes -->
+          <div class="fulfillment-card">
+            <div class="card-heading">
+              <span>FULFILLMENT & WORKSHOP NOTES</span>
+            </div>
+            <form id="fulfillmentNotesForm">
+              <div class="shipping-inputs-row">
+                <label>
+                  Courier Name
+                  <input type="text" id="courierInput" placeholder="e.g. JNE, SiCepat, Paxel" />
+                </label>
+                <label>
+                  Tracking Number (Resi)
+                  <input type="text" id="trackingInput" placeholder="e.g. JNE0123456789" />
+                </label>
+              </div>
+              <label>
+                Internal Workshop / Admin Notes
+                <textarea id="adminNotesTextarea" rows="3" placeholder="Add payment verification proof notes, artisan notes, or packaging remarks..."></textarea>
+              </label>
+              <div class="form-action-row">
+                <span class="save-indicator" id="notesSaveIndicator" hidden>Saved ✓</span>
+                <button type="submit" class="button button-dark button-small" id="saveNotesBtn">
+                  Save Notes & Shipping
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Status Audit Timeline -->
+          <div class="audit-card">
+            <div class="card-heading">
+              <span>STATUS HISTORY TIMELINE</span>
+            </div>
+            <div class="timeline-list" id="statusTimelineList">
+              <p class="empty-timeline">No status transitions recorded yet.</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="admin-toast" id="adminToast" role="alert" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="src/pricing.js"></script>
+  <script src="src/options.js"></script>
+  <script src="src/catalog.js"></script>
+  <script type="module" src="src/admin.js"></script>
+</body>
+</html>
