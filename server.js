@@ -101,7 +101,7 @@ function createAppServer(root = __dirname) {
 }
 
 /**
- * Probe the loopback interface before binding the local-only preview server.
+ * Probe the loopback interface before binding the local development server.
  */
 function probePortAvailability(port) {
   if (!port) return Promise.resolve(true);
@@ -112,7 +112,7 @@ function probePortAvailability(port) {
   });
 }
 
-async function listenWithFallback(server, startPort = DEFAULT_PORT, maxAttempts = 30) {
+async function listenWithFallback(server, startPort = DEFAULT_PORT, maxAttempts = 30, host = '127.0.0.1') {
   let candidatePort = Number(startPort);
   let attempts = 0;
 
@@ -139,7 +139,7 @@ async function listenWithFallback(server, startPort = DEFAULT_PORT, maxAttempts 
         };
         server.once('error', onError);
         server.once('listening', onListening);
-        server.listen(candidatePort, '127.0.0.1');
+        server.listen(candidatePort, host);
       });
     } catch (error) {
       if (error.code === 'EADDRINUSE' && candidatePort !== 0 && attempts < maxAttempts) {
@@ -173,12 +173,18 @@ function openBrowser(url) {
 
 if (require.main === module) {
   const preferredPort = process.env.PORT ? Number(process.env.PORT) : DEFAULT_PORT;
+  const isProduction = process.env.NODE_ENV === 'production';
   const server = createAppServer();
 
-  listenWithFallback(server, preferredPort)
+  listenWithFallback(
+    server,
+    preferredPort,
+    isProduction ? 0 : 30,
+    isProduction ? '0.0.0.0' : '127.0.0.1',
+  )
     .then(({ port, attempts }) => {
-      const url = `http://localhost:${port}`;
-      process.stdout.write(`LOCOXATL multi-page preview running at ${url}\n`);
+      const location = isProduction ? `0.0.0.0:${port}` : `http://localhost:${port}`;
+      process.stdout.write(`LOCOXATL server listening on ${location}\n`);
       if (attempts > 0) {
         process.stdout.write(`Port ${preferredPort} was already in use. This preview is using port ${port}.\n`);
       }
@@ -192,11 +198,6 @@ if (require.main === module) {
           .then(async () => {
             process.stdout.write('MySQL orders API: connected.\n');
             try {
-              const { runAdditiveMigrations } = require('./src/server/migrate');
-              const migration = await runAdditiveMigrations();
-              if (migration && migration.addedColumns && migration.addedColumns.length) {
-                process.stdout.write(`MySQL migrations: applied additive columns (${migration.addedColumns.join(', ')}).\n`);
-              }
               const { seedAdminUser } = require('./src/server/auth');
               await seedAdminUser();
             } catch (err) {
@@ -204,8 +205,9 @@ if (require.main === module) {
             }
           })
           .catch((error) => process.stdout.write(`MySQL orders API: connection failed (${error.message}).\n`));
+        process.stdout.write('MySQL migrations: not run automatically. Use npm run db:migrate after review.\n');
       }
-      if (process.env.OPEN_BROWSER === '1') openBrowser(url);
+      if (!isProduction && process.env.OPEN_BROWSER === '1') openBrowser(`http://localhost:${port}`);
     })
     .catch((error) => {
       process.stderr.write(`Unable to start LOCOXATL preview: ${error.message}\n`);

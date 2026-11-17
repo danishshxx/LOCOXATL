@@ -1,4 +1,43 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { getPool, isConfigured } = require('./db');
+
+function parseSchemaStatements(sql) {
+  return sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+async function assertSelectedDatabase(connection) {
+  const [rows] = await connection.query('SELECT DATABASE() AS databaseName');
+  const databaseName = rows[0] && rows[0].databaseName;
+  if (!databaseName || databaseName !== process.env.DB_NAME) {
+    throw new Error('The active MySQL database does not match DB_NAME.');
+  }
+  return databaseName;
+}
+
+async function runBaseSchema() {
+  if (!isConfigured()) return { skipped: true, reason: 'not_configured' };
+
+  const pool = getPool();
+  const connection = await pool.getConnection();
+  try {
+    const databaseName = await assertSelectedDatabase(connection);
+    const schemaPath = path.join(__dirname, '..', '..', 'database', 'schema.sql');
+    const schema = fs.readFileSync(schemaPath, 'utf8');
+    for (const statement of parseSchemaStatements(schema)) {
+      await connection.query(statement);
+    }
+    return { success: true, databaseName };
+  } finally {
+    connection.release();
+  }
+}
 
 /**
  * Ensures admin columns, audit tables, and auth tables exist in MySQL without modifying
@@ -8,10 +47,14 @@ const { getPool, isConfigured } = require('./db');
 async function runAdditiveMigrations() {
   if (!isConfigured()) return { skipped: true, reason: 'not_configured' };
 
+  const baseSchema = await runBaseSchema();
+  if (!baseSchema.success) return baseSchema;
+
   const pool = getPool();
   const connection = await pool.getConnection();
 
   try {
+    const databaseName = await assertSelectedDatabase(connection);
     // 1. Check existing columns in the orders table
     const [columns] = await connection.query(
       `SELECT COLUMN_NAME
@@ -137,6 +180,7 @@ async function runAdditiveMigrations() {
 
     return {
       success: true,
+      databaseName,
       addedColumns: missingColumns.map((c) => c.name),
     };
   } finally {
@@ -144,4 +188,4 @@ async function runAdditiveMigrations() {
   }
 }
 
-module.exports = { runAdditiveMigrations };
+module.exports = { runBaseSchema, runAdditiveMigrations, parseSchemaStatements };

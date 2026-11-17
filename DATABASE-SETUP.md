@@ -14,13 +14,25 @@ configured; when it is not, the checkout still completes and the order stays in 
 
 The 3D customizer needs no database and no extra dependency.
 
-## 2. Create the database
+## 2. Select the existing database and initialize its tables
 
+For local Laragon, create `locoxatl` once if it does not already exist:
 ```bash
-mysql -u root -p < database/schema.sql
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS locoxatl CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 ```
 
-The script creates the `locoxatl` database (utf8mb4) and three tables:
+Railway's MySQL service already provides its `railway` database. Do not create another
+database there. Apply the base schema only after selecting the desired existing database:
+
+```bash
+mysql -u root -p locoxatl < database/schema.sql
+```
+
+`database/schema.sql` creates the application tables with `CREATE TABLE IF NOT EXISTS`;
+it never creates or switches databases. The migration command also applies this base
+schema to the database selected by `DB_NAME` before applying additive changes.
+
+The base schema includes:
 
 | Table | Purpose |
 |---|---|
@@ -61,8 +73,9 @@ GRANT SELECT, INSERT, UPDATE ON locoxatl.* TO 'locoxatl'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-Only `SELECT`, `INSERT` and `UPDATE` are needed: orders are created, read back, and
-their status is updated. Nothing in the application deletes rows.
+The application runtime needs `SELECT`, `INSERT` and `UPDATE`. The one-time migration
+command additionally needs the MySQL privileges required for `CREATE TABLE` and `ALTER
+TABLE`; keep those privileges separate from the runtime account where practical.
 
 ## 4. Configure the application
 
@@ -100,11 +113,42 @@ MySQL orders API: not configured. Copy .env.example to .env to enable order pers
 MySQL orders API: connection failed (<reason>).
 ```
 
+### Railway production variables
+
+For service `locoxatl-app` in the `production` environment, add these variables.
+Railway's MySQL service exposes the referenced values internally; do not use a public
+TCP proxy address for app-to-database connections:
+
+```text
+NODE_ENV=production
+DB_HOST=${{MySQL.MYSQLHOST}}
+DB_PORT=${{MySQL.MYSQLPORT}}
+DB_USER=${{MySQL.MYSQLUSER}}
+DB_PASSWORD=${{MySQL.MYSQLPASSWORD}}
+DB_NAME=${{MySQL.MYSQLDATABASE}}
+```
+
+For the stated Railway service, `MYSQLDATABASE` is `railway`; do not override it to
+`locoxatl` or create a second database.
+
+Set `ADMIN_USERNAME` and a unique, strong `ADMIN_PASSWORD` as service secrets. Railway
+sets `PORT` automatically. The server binds to `0.0.0.0` in production and to
+`127.0.0.1` for local development. The Railway HTTPS proxy's `X-Forwarded-Proto`
+continues to control the Secure admin-cookie attribute.
+
+The application start command does not apply schema changes. `npm run db:migrate`
+initializes missing tables in the selected database and applies additive migrations.
+Local migrations are limited to `locoxatl`; production migrations are limited to
+`railway` and require `CONFIRM_DB_MIGRATION=railway` for that invocation.
+
 ## 5. Verify
 
 ```bash
 curl http://localhost:4173/api/health
 ```
+
+On Railway, set the service healthcheck path to `/api/health`. It returns `200` only
+when the configured MySQL connection responds, and `503` otherwise.
 
 Healthy response:
 
@@ -182,8 +226,8 @@ Notes:
 | `database_unavailable` / `Missing environment variables` | `.env` incomplete | copy `.env.example`, fill `DB_HOST`, `DB_USER`, `DB_NAME` |
 | `ECONNREFUSED` | MySQL not running | start the MySQL service |
 | `ER_ACCESS_DENIED_ERROR` | wrong user/password or host grant | recreate the user with `'locoxatl'@'localhost'` |
-| `ER_NO_SUCH_TABLE` | schema not imported | `mysql -u root -p < database/schema.sql` |
-| `ER_BAD_DB_ERROR` | database missing | run the schema script (it creates the database) |
+| `ER_NO_SUCH_TABLE` | schema not imported | run `npm run db:migrate` against the selected database |
+| `ER_BAD_DB_ERROR` | selected database missing | select the existing database; schema setup does not create one |
 | Checkout stays in `local-demo` mode | API returned 503 | check `/api/health`, then re-submit the order |
 
 ## 8. Safe Additive Migration for Admin
@@ -196,9 +240,29 @@ This migration is strictly additive:
 - Adds `admin_notes`, `payment_verified_at`, `shipping_courier`, `tracking_number`, `shipped_at`, `completed_at` to `orders`.
 - Adds `order_status_history` table for transition auditing.
 - Never drops or truncates any existing orders or configurations.
-- `npm run db:migrate` applies the idempotent additive migrations to the configured
-  `locoxatl` database. It refuses to run unless `DB_NAME` is exactly `locoxatl`.
-- The server also attempts additive migrations on startup when MySQL is connected.
+- `npm run db:migrate` initializes the base schema and applies idempotent additive
+  migrations to the database selected by `DB_NAME`.
+- The server does not run migrations at startup. Run the migration command explicitly
+  after reviewing and backing up the target database.
+
+The migration CLI allows `DB_NAME=locoxatl` only outside production. In production it
+requires `DB_NAME=railway`, Railway's `RAILWAY_PROJECT_NAME=Locoxatl`,
+`RAILWAY_ENVIRONMENT_NAME=production`, and `RAILWAY_SERVICE_NAME=locoxatl-app`, plus an explicit
+`CONFIRM_DB_MIGRATION=railway`. Other environment/database combinations are refused
+before connecting.
+
+After confirming the Railway database and taking a backup, run the production migration
+manually inside the app service; do not add the confirmation variable as a permanent
+service variable:
+
+```bash
+railway ssh --service locoxatl-app --environment production
+CONFIRM_DB_MIGRATION=railway npm run db:migrate
+```
+
+This initializes the existing `railway` database from `schema.sql` and then applies
+idempotent additive changes. It never issues `CREATE DATABASE`, drops tables, truncates
+rows, or runs as part of `npm start`.
 
 ## 9. Cashbook and Excel reports
 
@@ -233,18 +297,21 @@ Run the unit/API suite:
 npm test
 ```
 
-The live integration test requires a **separate** database named exactly
-`locoxatl_test`. Create it manually in Laragon/MySQL, then create a test-only MySQL user
-with privileges scoped only to that database. Never point integration settings to
-`locoxatl`; the test runner refuses to use any other database name.
+The live integration tests use two **local disposable** databases: `locoxatl_test` and
+`railway_test`. The second exercises the Railway database name/connection behavior
+without contacting Railway production. Create both in Laragon/MySQL, then use a test-only
+account with privileges scoped to those databases. The test runner accepts loopback
+hosts only and never uses `.env` database credentials as fallbacks.
 
 ```sql
 CREATE DATABASE locoxatl_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE railway_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'locoxatl_test'@'localhost' IDENTIFIED BY 'use-a-dedicated-test-password';
 GRANT ALL PRIVILEGES ON locoxatl_test.* TO 'locoxatl_test'@'localhost';
+GRANT ALL PRIVILEGES ON railway_test.* TO 'locoxatl_test'@'localhost';
 ```
 
-In PowerShell, set the dedicated test connection variables and run:
+In PowerShell, set the dedicated local test connection variables and run:
 
 ```powershell
 $env:MYSQL_TEST_DATABASE = 'locoxatl_test'
@@ -252,17 +319,21 @@ $env:MYSQL_TEST_HOST = '127.0.0.1'
 $env:MYSQL_TEST_PORT = '3306'
 $env:MYSQL_TEST_USER = 'locoxatl_test'
 $env:MYSQL_TEST_PASSWORD = '<dedicated-test-password>'
+$env:MYSQL_RAILWAY_TEST_DATABASE = 'railway_test'
+$env:MYSQL_RAILWAY_TEST_HOST = '127.0.0.1'
+$env:MYSQL_RAILWAY_TEST_PORT = '3306'
+$env:MYSQL_RAILWAY_TEST_USER = 'locoxatl_test'
+$env:MYSQL_RAILWAY_TEST_PASSWORD = '<dedicated-test-password>'
 npm run test:mysql
 ```
 
-The integration test creates missing base tables with `CREATE TABLE IF NOT EXISTS`, runs
-the additive migration against the fixed test database, exercises payment income,
+The integration tests create missing base tables with `CREATE TABLE IF NOT EXISTS`, run
+the migration repeatedly against both fixed local test databases, verify the selected
+database name, and exercise payment income,
 duplicate protection, rollback, expenses, balances, order/customizer preservation, and
 Excel workbook generation, then removes only its uniquely tagged fixture rows. It never
-drops or truncates a database. Without the explicit `MYSQL_TEST_DATABASE=locoxatl_test`
-opt-in, it is reported as skipped. If `MYSQL_TEST_HOST` or `MYSQL_TEST_USER` is omitted,
-the runner may reuse server connection settings from `.env`, but it always overrides the
-target database to `locoxatl_test`.
+drops or truncates either database. Without both explicit test database opt-ins, the
+respective integration tests are skipped.
 
 `npm start` starts the local server. Confirm `/api/health` reports a database connection
 before treating live MySQL functionality as verified. The server stays usable for the

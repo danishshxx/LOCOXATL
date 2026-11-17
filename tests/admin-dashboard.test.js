@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { parseSchemaStatements } = require('../src/server/migrate');
 
 const root = path.join(__dirname, '..');
 
@@ -48,6 +49,23 @@ test('cashbook migration creates only additive tables with positive amounts', ()
   assert.match(sql, /CHECK \(amount > 0\)/i);
   assert.match(sql, /UNIQUE KEY uq_cashbook_source_key \(source_key\)/i);
   assert.doesNotMatch(sql, /DROP TABLE|TRUNCATE|DELETE FROM\s+(?:orders|order_items|customizer_configurations)/i);
+});
+
+test('base schema and SQL migrations use the selected database without creating or switching databases', () => {
+  const schema = fs.readFileSync(path.join(root, 'database', 'schema.sql'), 'utf8');
+  const migrationFiles = [
+    'database/migrations/001_admin_dashboard.sql',
+    'database/migrations/002_cashbook.sql',
+  ];
+
+  assert.doesNotMatch(schema, /CREATE\s+DATABASE|^\s*USE\s+/im);
+  assert.doesNotMatch(schema, /DROP\s+TABLE|TRUNCATE/i);
+  assert.ok(parseSchemaStatements(schema).every((statement) => /^CREATE TABLE IF NOT EXISTS/i.test(statement)));
+  for (const file of migrationFiles) {
+    const sql = fs.readFileSync(path.join(root, file), 'utf8');
+    assert.doesNotMatch(sql, /^\s*USE\s+/im, `${file} must not switch databases`);
+    assert.doesNotMatch(sql, /DROP\s+TABLE|TRUNCATE/i, `${file} must not erase data`);
+  }
 });
 
 // 2. Unit and business logic tests with mocked MySQL driver

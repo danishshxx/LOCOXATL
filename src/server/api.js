@@ -21,6 +21,7 @@ const {
 } = require('./auth');
 const cashbook = require('./cashbook');
 const { createReportWorkbook, getReportSummary, parseScope } = require('./reports');
+const { getPublicConfig } = require('./public-config');
 
 const MAX_BODY_BYTES = 512 * 1024;
 
@@ -204,6 +205,15 @@ async function handleApiRequest(request, response, url) {
         database: { configured, connected, message },
         api: { version: 1 },
       });
+      return true;
+    }
+
+    if (segments.length === 2 && segments[1] === 'public-config') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
+        return true;
+      }
+      sendJson(response, 200, getPublicConfig());
       return true;
     }
 

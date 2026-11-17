@@ -1,8 +1,7 @@
 -- LOCOXATL — Additive Cashbook Migration
 -- Creates only cashbook tables and standard categories. Existing order and customizer
 -- records are never reset, dropped, or rewritten.
-
-USE locoxatl;
+-- Execute only after selecting the intended database.
 
 CREATE TABLE IF NOT EXISTS cashbook_categories (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

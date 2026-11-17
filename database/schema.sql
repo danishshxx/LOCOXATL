@@ -1,13 +1,8 @@
 -- LOCOXATL — MySQL schema for order persistence
--- Import with:  mysql -u root -p < database/schema.sql
+-- Run against an already selected database; this file never creates or selects a database.
+-- Example: mysql -h 127.0.0.1 -u locoxatl -p locoxatl < database/schema.sql
 -- The schema is intentionally minimal: orders, their line items, and the 3D
 -- customizer snapshot that belongs to each line item.
-
-CREATE DATABASE IF NOT EXISTS locoxatl
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE locoxatl;
 
 CREATE TABLE IF NOT EXISTS orders (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

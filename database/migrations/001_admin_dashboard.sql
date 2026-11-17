@@ -1,8 +1,7 @@
 -- LOCOXATL — Safe Additive Migration: Admin Dashboard, Auth & Status History
 -- Compatible with MySQL 8.0 - 8.4 LTS and MariaDB 10.4+
 -- Strictly additive and idempotent. NEVER drops customer tables or alters existing data.
-
-USE locoxatl;
+-- Execute only after selecting the intended database.
 
 -- 1. Safely add admin & fulfillment columns to orders if not already present
 DROP PROCEDURE IF EXISTS add_locoxatl_admin_columns;

@@ -92,6 +92,16 @@ in `localStorage`.
 See `DATABASE-SETUP.md` for schema import, environment variables, API reference and
 verification steps.
 
+## Customer contact links
+
+Set `WHATSAPP_BUSINESS_NUMBER` to the official business number and `INSTAGRAM_URL` to
+the official Instagram profile URL in the server environment (or local `.env`). Indonesian
+numbers can be entered in local `08...` or international `+62...` format. Only validated,
+public contact details are returned by `/api/public-config`; no WhatsApp API token is used.
+The order-success page prepares the confirmation text in the browser and opens the `wa.me`
+link only after the customer clicks the WhatsApp button. Customers can use **Copy Message**
+as a fallback.
+
 ## Brand and implementation
 
 - Font: locally hosted Inter.
@@ -108,7 +118,7 @@ Access the operations and workshop dashboard at:
 - **Authentication**: Set `ADMIN_USERNAME` and `ADMIN_PASSWORD` in the server environment. They provision an account only when `admin_users` is empty; restarting the server does not overwrite existing credentials.
 - **Session security**: Login sessions use random tokens in an HttpOnly, SameSite=Strict cookie. Only a SHA-256 hash is stored in MySQL; sessions expire after eight hours. The Secure cookie attribute is enabled for HTTPS requests.
 - **Request protection**: State-changing admin API requests require a same-origin `Origin` header.
-- **Network access**: The preview server listens on loopback for local HTTP development. Deployments should expose it only through an HTTPS reverse proxy.
+- **Network access**: Local development listens on loopback; production listens on `0.0.0.0` and uses the platform's HTTPS proxy.
 - **Operations Control**: KPI metrics (Total Orders, Pending Verification, Waiting Payment, In Workshop, Shipped, Revenue).
 - **Orders Management**: Live search, status filter tabs, and paginated order table.
 - **Workshop 3D Inspector**: Reuses Three.js Custom Studio engine to inspect the customer's exact 3D design snapshot with OrbitControls, explode view, assemble view, and full Bill of Materials (BOM).
@@ -117,8 +127,10 @@ Access the operations and workshop dashboard at:
 - **WhatsApp Direct Action**: One-click WhatsApp link pre-filled with customer greeting and order status.
 - **Accounting Cashbook**: Verified payment income, auditable expense corrections, categories, date-filtered balances, summaries, and Excel exports.
 
-Apply database changes using `npm run db:migrate` after configuring MySQL. The command
-only targets a database named exactly `locoxatl` and runs additive migrations. See
+Apply database changes using `npm run db:migrate` after configuring MySQL. Locally it
+only targets `locoxatl`; in production it only targets Railway's existing `railway`
+database and requires `CONFIRM_DB_MIGRATION=railway`. The command initializes missing
+tables and applies additive migrations. Migrations are never run by `npm start`. See
 `DATABASE-SETUP.md` for cashbook APIs, reporting, and isolated `locoxatl_test` integration
 instructions.
 

@@ -53,6 +53,15 @@ test('local server serves the separate pages and their scripts over HTTP', async
   }
 });
 
+test('server can bind to all interfaces for production deployments', async (t) => {
+  const server = createAppServer(root);
+  const { port } = await listenWithFallback(server, 0, 0, '0.0.0.0');
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  assert.equal(server.address().address, '0.0.0.0');
+  const response = await request(port, '/');
+  assert.equal(response.status, 200);
+});
+
 test('local server moves to another port if the default port is already occupied', async (t) => {
   const blocker = net.createServer();
   await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve));

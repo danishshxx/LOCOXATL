@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "description": "Editable multi-page front-end prototype for the LOCOXATL modular keychain store.",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
