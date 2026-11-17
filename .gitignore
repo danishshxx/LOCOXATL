@@ -19,4 +19,5 @@ secrets/
 credentials.*
 tmp-shots/
 tmp-*.cjs
+assets/uploads/
 .DS_Store

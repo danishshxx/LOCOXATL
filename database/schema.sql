@@ -84,3 +84,21 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   KEY idx_sessions_expires (expires_at),
   CONSTRAINT fk_sessions_admin FOREIGN KEY (admin_id) REFERENCES admin_users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Curated storefront collections. Rows are seeded from the six artists in src/catalog.js the
+-- first time the table is empty, so existing links and historical orders keep resolving.
+CREATE TABLE IF NOT EXISTS catalog_groups (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  slug VARCHAR(64) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  tagline VARCHAR(255) NOT NULL DEFAULT '',
+  description TEXT NULL,
+  image_url VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_catalog_groups_slug (slug),
+  KEY idx_catalog_groups_active_order (is_active, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -3,6 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// The order layer needs a configured pool before the scripted driver below can answer; these
+// values are only used to satisfy the configuration check inside src/server/db.js.
+process.env.DB_HOST = process.env.DB_HOST || '127.0.0.1';
+process.env.DB_USER = process.env.DB_USER || 'security-test';
+process.env.DB_NAME = process.env.DB_NAME || 'security_test';
+
 const root = path.join(__dirname, '..');
 
 // 1. Static audit: ensure secrets and tokens are never hardcoded or prefilled

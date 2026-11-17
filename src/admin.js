@@ -41,6 +41,11 @@
   let expenseCategories = [];
   let editingExpenseId = null;
   let accountingSummaryPoll = null;
+  let activeView = 'orders';
+  let catalogGroups = [];
+  let lastFocusedElement = null;
+  let pendingImageData = null;
+  let pendingImageRemoval = false;
 
   // ---------------------------------------------------------------------------
   // API Client with Auth
@@ -88,7 +93,7 @@
 
       if (connected) {
         dot.className = 'db-dot connected';
-        pillText.textContent = 'MySQL Live (Laragon)';
+        pillText.textContent = 'MySQL Live';
         topStatus.textContent = 'ONLINE (MYSQL CONNECTED)';
       } else if (configured) {
         dot.className = 'db-dot demo';
@@ -208,6 +213,7 @@
 
       // Update tab chip counts
       $('#countAll').textContent = metrics.totalOrders || 0;
+      $('#countUnpaid').textContent = (counts.waiting_for_payment || 0) + (counts.payment_confirmation_sent || 0);
       $('#countProof').textContent = counts.payment_confirmation_sent || 0;
       $('#countWaiting').textContent = counts.waiting_for_payment || 0;
       $('#countPaid').textContent = counts.paid || 0;
@@ -612,9 +618,10 @@
       const detailsLine = [baseName, initial, addons].filter(Boolean).join(' · ');
 
       const statusBadge = `<span class="status-pill status-${order.status}">${formatStatusLabel(order.status)}</span>`;
+      const needsAction = order.status === 'waiting_for_payment' || order.status === 'payment_confirmation_sent';
 
       return `
-        <tr data-order-number="${escapeHtml(order.orderNumber)}">
+        <tr data-order-number="${escapeHtml(order.orderNumber)}"${needsAction ? ' class="row-attention"' : ''}>
           <td class="order-code-cell">${escapeHtml(order.orderNumber)}</td>
           <td>${formatDate(order.createdAt)}</td>
           <td class="customer-cell">
@@ -723,9 +730,12 @@
   // ---------------------------------------------------------------------------
   async function openOrderDrawer(orderNumber) {
     const drawerBackdrop = $('#detailDrawerBackdrop');
+    lastFocusedElement = document.activeElement;
     drawerBackdrop.hidden = false;
     $('#drawerOrderTitle').textContent = orderNumber;
     $('#drawerEyebrow').textContent = 'LOADING ORDER DETAILS…';
+    const drawer = $('#detailDrawer');
+    if (drawer) drawer.focus();
 
     try {
       const res = await adminFetch(`/api/admin/orders/${encodeURIComponent(orderNumber)}`);
@@ -743,6 +753,8 @@
   function closeOrderDrawer() {
     $('#detailDrawerBackdrop').hidden = true;
     currentOrder = null;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
   }
 
   $('#drawerCloseBtn').addEventListener('click', closeOrderDrawer);
@@ -762,6 +774,22 @@
 
     // Quick Action Buttons
     renderQuickStatusActions(order);
+
+    // Payment verification context: when it happened, or what is still missing.
+    const statusMeta = $('#detailStatusMeta');
+    if (order.paymentVerifiedAt) {
+      statusMeta.textContent = `Payment verified ${formatDate(order.paymentVerifiedAt)}`;
+      statusMeta.hidden = false;
+    } else if (order.status === 'payment_confirmation_sent') {
+      statusMeta.textContent = 'Customer confirmed the payment — check the WhatsApp proof, then verify.';
+      statusMeta.hidden = false;
+    } else if (order.status === 'waiting_for_payment') {
+      statusMeta.textContent = 'No payment confirmation from the customer yet.';
+      statusMeta.hidden = false;
+    } else {
+      statusMeta.textContent = '';
+      statusMeta.hidden = true;
+    }
 
     // Customer
     $('#custName').textContent = order.customer.name || '—';
@@ -862,6 +890,12 @@
   }
 
   async function updateStatus(orderNumber, nextStatus, notes = '') {
+    // Freeze the quick actions while the transition is in flight so a double click cannot
+    // fire two verifications.
+    const actionContainer = $('#quickStatusActions');
+    const actionButtons = actionContainer ? [...actionContainer.querySelectorAll('button')] : [];
+    actionButtons.forEach((button) => { button.disabled = true; });
+
     try {
       const res = await adminFetch(`/api/admin/orders/${encodeURIComponent(orderNumber)}/status`, {
         method: 'PATCH',
@@ -880,9 +914,12 @@
       loadMetrics();
       loadOrders();
       await refreshAccounting();
-      showToast(`Order status updated to: ${formatStatusLabel(nextStatus)}`);
+      showToast(nextStatus === 'paid'
+        ? 'Payment verified — income booked in the cashbook.'
+        : `Order status updated to: ${formatStatusLabel(nextStatus)}`);
     } catch (err) {
       showToast(`Status update error: ${err.message}`);
+      actionButtons.forEach((button) => { button.disabled = false; });
     }
   }
 
@@ -1065,17 +1102,386 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Dashboard views: Orders / Cashbook & Reports / Catalog Groups
+  // ---------------------------------------------------------------------------
+  function setActiveView(view) {
+    const target = ['orders', 'accounting', 'catalog'].includes(view) ? view : 'orders';
+    activeView = target;
+
+    $$('[data-view-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.viewPanel !== target;
+    });
+    $$('#adminViewTabs .admin-view-tab').forEach((tab) => {
+      const isActive = tab.dataset.view === target;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', String(isActive));
+    });
+
+    if (target === 'catalog' && !catalogGroups.length) loadCatalogGroups();
+    if (target === 'accounting') refreshAccounting();
+  }
+
+  $$('#adminViewTabs .admin-view-tab').forEach((tab) => {
+    tab.addEventListener('click', () => setActiveView(tab.dataset.view));
+  });
+
+  $('#accountingNavLink').addEventListener('click', (event) => {
+    event.preventDefault();
+    setActiveView('accounting');
+    $('#accountingSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Catalog groups
+  // ---------------------------------------------------------------------------
+  async function loadCatalogGroups() {
+    const tbody = $('#catalogGroupsBody');
+    const note = $('#catalogSourceNote');
+    tbody.innerHTML = '<tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>';
+
+    try {
+      const response = await adminFetch('/api/admin/catalog/groups');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Catalog groups could not be loaded.');
+      catalogGroups = data.groups || [];
+      renderCatalogGroups();
+      const live = catalogGroups.filter((group) => group.isActive).length;
+      note.textContent = `${catalogGroups.length} collection${catalogGroups.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
+    } catch (error) {
+      catalogGroups = [];
+      tbody.innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = 'Catalog management needs the MySQL connection. The storefront keeps using the bundled catalogue.';
+    }
+  }
+
+  // Only the upload endpoint's own paths may be used as a CSS background.
+  function safeImageUrl(url) {
+    return /^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/.test(String(url || '')) ? String(url) : '';
+  }
+
+  function renderCatalogGroups() {
+    const tbody = $('#catalogGroupsBody');
+    if (!catalogGroups.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No catalog groups yet. Add the first collection.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = catalogGroups.map((group, index) => {
+      const thumb = safeImageUrl(group.imageUrl);
+      return `
+      <tr data-group-row="${group.id}">
+        <td class="catalog-order-cell">
+          <span class="catalog-order-index">${String(index + 1).padStart(2, '0')}</span>
+          <span class="catalog-order-controls">
+            <button type="button" class="icon-button catalog-move" data-move="-1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button type="button" class="icon-button catalog-move" data-move="1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} down" ${index === catalogGroups.length - 1 ? 'disabled' : ''}>↓</button>
+          </span>
+        </td>
+        <td class="customer-cell">
+          <span class="catalog-group-name">
+            ${thumb
+              ? `<span class="catalog-thumb" style="background-image:url('${thumb}')" aria-hidden="true"></span>`
+              : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
+            <strong>${escapeHtml(group.name)}</strong>
+          </span>
+          <span>${escapeHtml(group.tagline || 'No tagline')}</span>
+        </td>
+        <td><code class="catalog-slug">${escapeHtml(group.slug)}</code></td>
+        <td class="catalog-description-cell">${escapeHtml((group.description || '—').slice(0, 90))}</td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-group="${group.id}" ${group.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(group.name)} on the storefront" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${group.isActive ? 'Live' : 'Hidden'}</span>
+          </label>
+        </td>
+        <td>
+          <button type="button" class="button button-outline button-small" data-edit-group="${group.id}">Edit</button>
+        </td>
+      </tr>
+    `;
+    }).join('');
+
+    tbody.querySelectorAll('[data-edit-group]').forEach((button) => {
+      button.addEventListener('click', () => openGroupModal(Number(button.dataset.editGroup)));
+    });
+    tbody.querySelectorAll('[data-toggle-group]').forEach((input) => {
+      input.addEventListener('change', () => toggleGroup(Number(input.dataset.toggleGroup), input.checked));
+    });
+    tbody.querySelectorAll('[data-move]').forEach((button) => {
+      button.addEventListener('click', () => moveGroup(Number(button.dataset.groupId), Number(button.dataset.move)));
+    });
+  }
+
+  async function toggleGroup(id, isActive) {
+    try {
+      const response = await adminFetch(`/api/admin/catalog/groups/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Collection could not be updated.');
+      await loadCatalogGroups();
+      showToast(isActive ? 'Collection published to the storefront.' : 'Collection hidden from the storefront.');
+    } catch (error) {
+      showToast(`Catalog error: ${error.message}`);
+      await loadCatalogGroups();
+    }
+  }
+
+  async function moveGroup(id, direction) {
+    const index = catalogGroups.findIndex((group) => group.id === id);
+    if (index < 0) return;
+    const neighbour = catalogGroups[index + direction];
+    if (!neighbour) return;
+
+    const current = catalogGroups[index];
+    const updates = current.sortOrder === neighbour.sortOrder
+      ? [[current.id, neighbour.sortOrder + (direction > 0 ? 1 : -1)]]
+      : [[current.id, neighbour.sortOrder], [neighbour.id, current.sortOrder]];
+
+    try {
+      for (const [groupId, sortOrder] of updates) {
+        await adminFetch(`/api/admin/catalog/groups/${groupId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ sortOrder }),
+        });
+      }
+      await loadCatalogGroups();
+    } catch (error) {
+      showToast(`Reorder error: ${error.message}`);
+    }
+  }
+
+  function openGroupModal(groupId) {
+    const group = groupId ? catalogGroups.find((row) => row.id === groupId) : null;
+    $('#groupFormError').hidden = true;
+    $('#groupForm').reset();
+    $('#groupFormId').value = group ? String(group.id) : '';
+    $('#groupName').value = group ? group.name : '';
+    $('#groupSlug').value = group ? group.slug : '';
+    $('#groupTagline').value = group ? group.tagline : '';
+    $('#groupDescription').value = group ? group.description : '';
+    $('#groupSortOrder').value = String(group ? group.sortOrder : catalogGroups.length);
+    $('#groupIsActive').checked = group ? Boolean(group.isActive) : true;
+    $('#groupModalEyebrow').textContent = group ? 'EDIT COLLECTION' : 'NEW COLLECTION';
+    $('#groupModalTitle').textContent = group ? group.name : 'Add group';
+    $('#groupFormSubmit').textContent = group ? 'Save changes' : 'Create group';
+
+    pendingImageData = null;
+    pendingImageRemoval = false;
+    $('#groupImageInput').value = '';
+    $('#groupImageNote').textContent = '';
+    $('#groupImageNote').hidden = true;
+    renderGroupImagePreview(group ? group.imageUrl : '');
+
+    lastFocusedElement = document.activeElement;
+    $('#groupModalBackdrop').hidden = false;
+    $('#groupName').focus();
+  }
+
+  function renderGroupImagePreview(source) {
+    const preview = $('#groupImagePreview');
+    const thumb = $('#groupImageThumb');
+    const value = String(source || '');
+    const safe = value.startsWith('data:image/') ? value : safeImageUrl(value);
+
+    if (safe) {
+      thumb.src = safe;
+      preview.hidden = false;
+    } else {
+      thumb.removeAttribute('src');
+      preview.hidden = true;
+    }
+  }
+
+  /**
+   * Downscales the chosen photo in the browser before upload: the server only ever receives a
+   * validated, reasonably sized WebP/JPEG data URL.
+   */
+  async function readImageFile(file) {
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      throw new Error('Choose a PNG, JPEG or WebP image.');
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      throw new Error('That image is larger than 12 MB.');
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error('That file could not be read as an image.'));
+        element.src = objectUrl;
+      });
+
+      const limit = 1600;
+      const scale = Math.min(1, limit / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      const webp = canvas.toDataURL('image/webp', 0.85);
+      return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.85);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  $('#groupImageInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    const note = $('#groupImageNote');
+    if (!file) return;
+
+    note.hidden = false;
+    note.textContent = 'Preparing image…';
+
+    try {
+      pendingImageData = await readImageFile(file);
+      pendingImageRemoval = false;
+      renderGroupImagePreview(pendingImageData);
+      const kilobytes = Math.round((pendingImageData.length * 0.75) / 1024);
+      note.textContent = `Ready to upload · about ${kilobytes} KB after resizing.`;
+    } catch (error) {
+      pendingImageData = null;
+      note.textContent = error.message;
+      $('#groupImageInput').value = '';
+    }
+  });
+
+  $('#groupImageRemove').addEventListener('click', () => {
+    pendingImageData = null;
+    pendingImageRemoval = true;
+    $('#groupImageInput').value = '';
+    renderGroupImagePreview('');
+    const note = $('#groupImageNote');
+    note.textContent = 'The image will be removed when you save.';
+    note.hidden = false;
+  });
+
+  function closeGroupModal() {
+    $('#groupModalBackdrop').hidden = true;
+    pendingImageData = null;
+    pendingImageRemoval = false;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+
+  $('#addGroupBtn').addEventListener('click', () => openGroupModal(null));
+  $('#refreshCatalogBtn').addEventListener('click', () => loadCatalogGroups());
+  $('#groupModalClose').addEventListener('click', closeGroupModal);
+  $('#groupFormCancel').addEventListener('click', closeGroupModal);
+  $('#groupModalBackdrop').addEventListener('click', (event) => {
+    if (event.target === $('#groupModalBackdrop')) closeGroupModal();
+  });
+
+  $('#groupForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#groupFormId').value;
+    const errorEl = $('#groupFormError');
+    const payload = {
+      name: $('#groupName').value,
+      slug: $('#groupSlug').value,
+      tagline: $('#groupTagline').value,
+      description: $('#groupDescription').value,
+      sortOrder: Number($('#groupSortOrder').value),
+      isActive: $('#groupIsActive').checked,
+    };
+
+    errorEl.hidden = true;
+    $('#groupFormSubmit').disabled = true;
+
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/catalog/groups/${id}` : '/api/admin/catalog/groups',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Collection could not be saved.');
+
+      const saved = data.group;
+      if (pendingImageData && saved) {
+        const imageResponse = await adminFetch(`/api/admin/catalog/groups/${saved.id}/image`, {
+          method: 'POST',
+          body: JSON.stringify({ dataUrl: pendingImageData }),
+        });
+        const imageBody = await imageResponse.json().catch(() => ({}));
+        if (!imageResponse.ok) throw new Error(imageBody.message || 'The card image could not be uploaded.');
+      } else if (pendingImageRemoval && saved) {
+        const imageResponse = await adminFetch(`/api/admin/catalog/groups/${saved.id}/image`, { method: 'DELETE' });
+        if (!imageResponse.ok) {
+          const imageBody = await imageResponse.json().catch(() => ({}));
+          throw new Error(imageBody.message || 'The card image could not be removed.');
+        }
+      }
+
+      closeGroupModal();
+      await loadCatalogGroups();
+      showToast(id ? 'Collection updated.' : 'Collection created.');
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      $('#groupFormSubmit').disabled = false;
+    }
+  });
+
+  // Keeps Tab inside an open dialog, so focus never lands on the page behind it.
+  function trapFocusWithin(container, event) {
+    if (!container || event.key !== 'Tab') return;
+    const focusable = [...container.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter((element) => element.offsetParent !== null || element === document.activeElement);
+    if (!focusable.length) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  // Escape closes the topmost overlay and returns focus to the control that opened it.
+  document.addEventListener('keydown', (event) => {
+    const groupModalOpen = !$('#groupModalBackdrop').hidden;
+    const drawerOpen = !$('#detailDrawerBackdrop').hidden;
+
+    if (event.key === 'Tab') {
+      if (groupModalOpen) trapFocusWithin($('#groupModal'), event);
+      else if (drawerOpen) trapFocusWithin($('#detailDrawer'), event);
+      return;
+    }
+
+    if (event.key !== 'Escape') return;
+    if (groupModalOpen) {
+      closeGroupModal();
+      return;
+    }
+    if (drawerOpen) closeOrderDrawer();
+  });
+
+  // ---------------------------------------------------------------------------
   // Dashboard Startup
   // ---------------------------------------------------------------------------
   function initDashboard() {
     $('#accountingNavLink').hidden = false;
     $('#expenseDate').value = localDateInputValue();
+    setActiveView('orders');
     loadMetrics();
     loadOrders();
     refreshAccounting();
     checkHealth();
     if (!accountingSummaryPoll) {
-      accountingSummaryPoll = setInterval(loadCashbookSummary, 10000);
+      // Skip the ten-second refresh while the tab is in the background.
+      accountingSummaryPoll = setInterval(() => {
+        if (document.hidden) return;
+        loadCashbookSummary();
+      }, 10000);
     }
   }
 

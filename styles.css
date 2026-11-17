@@ -119,6 +119,11 @@ button{color:inherit}
 .artist-card-dark{background:#050505;color:#fff}
 .artist-card-light{background:#f1f1f1;color:#111}
 .artist-card-mid{background:#dcdcdc;color:#111}
+.artist-card.has-image{background-size:cover;background-position:center;color:#fff;background-color:#111}
+.artist-card.has-image::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(0,0,0,.18) 0%,rgba(0,0,0,.42) 55%,rgba(0,0,0,.72) 100%)}
+.artist-card.has-image::after{border-color:#fff;opacity:.18}
+.artist-card.has-image .artist-card-index,.artist-card.has-image .artist-card-bottom{opacity:.85;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+.artist-card.has-image strong{text-shadow:0 2px 18px rgba(0,0,0,.5)}
 .artist-card-index,.artist-card-bottom{font-size:8px;letter-spacing:.15em;font-weight:700;opacity:.65}
 .artist-card strong{font-size:clamp(36px,6vw,76px);line-height:.9;letter-spacing:-.085em;font-weight:800;overflow-wrap:anywhere}
 .artist-card-bottom{display:flex;justify-content:space-between;align-items:center;opacity:.8}
@@ -276,3 +281,10 @@ button{color:inherit}
 .checkout-status{margin:0;padding:10px 12px;border-radius:10px;border:1px solid #e2e2e4;background:#fafafa;font-size:9px;line-height:1.65;color:#777}
 .checkout-status[data-tone="error"]{border-color:#111;background:#111;color:#fff}
 .button[disabled]{opacity:.55;cursor:progress}
+
+/* CURATED COLLECTIONS IN THE SHARED FOOTER */
+.footer-collections{display:flex;flex-wrap:wrap;gap:10px 18px;padding:0 0 20px;border-bottom:1px solid #eee}
+.footer-collections[hidden]{display:none}
+.footer-collections a{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#777;text-decoration:none;border-bottom:1px solid #e2e2e4;padding-bottom:2px}
+.footer-collections a:hover{color:#000;border-color:#000}
+@media(max-width:760px){.footer-collections{gap:8px 14px;padding-bottom:18px}}

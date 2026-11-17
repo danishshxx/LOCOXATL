@@ -10,7 +10,8 @@ vendored Three.js build and loads its viewer modules only when the preview appro
 viewport.
 
 There is no active React, Next.js, Supabase, or PostgreSQL implementation in this codebase.
-The storefront remains usable in local-demo mode if MySQL is not configured.
+The storefront keeps working from the bundled catalogue in `src/catalog.js` when MySQL is not
+configured; checkout refuses to fake an order and reports the failure inline.
 
 ## Project responsibilities
 

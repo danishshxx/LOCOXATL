@@ -98,9 +98,29 @@ Set `WHATSAPP_BUSINESS_NUMBER` to the official business number and `INSTAGRAM_UR
 the official Instagram profile URL in the server environment (or local `.env`). Indonesian
 numbers can be entered in local `08...` or international `+62...` format. Only validated,
 public contact details are returned by `/api/public-config`; no WhatsApp API token is used.
-The order-success page prepares the confirmation text in the browser and opens the `wa.me`
-link only after the customer clicks the WhatsApp button. Customers can use **Copy Message**
+
+`src/server/public-config.js` ships working defaults, so the storefront renders contact links
+on a fresh clone with no `.env` at all. A real value in `process.env` always wins, and the
+`.env.example` placeholders (`[ISI_NOMOR_WA_628XXX]`, `[ISI_LINK_INSTAGRAM]`) fall back to
+those defaults instead of producing broken links.
+
+Both the payment and order-success pages build their WhatsApp text from one shared template in
+`src/whatsapp.js`:
+
+```
+halo kak ingin memverifikasi pembelian dan pembayaran dengan nomor order : <orderNumber>
+```
+
+The link opens a direct chat with the configured number. Customers can use **Copy Message**
 as a fallback.
+
+## Payment verification
+
+The admin Orders view has a **Needs Payment** filter that groups `waiting_for_payment` and
+`payment_confirmation_sent` orders (`GET /api/admin/orders?status=unpaid`), and unpaid rows are
+flagged in the table. Opening an order exposes **Verify Payment**, which moves it to `paid`,
+stamps `payment_verified_at` once, writes an `order_status_history` row, and books the income in
+`cashbook_entries` — all in one transaction.
 
 ## Brand and implementation
 
@@ -122,7 +142,8 @@ Access the operations and workshop dashboard at:
 - **Operations Control**: KPI metrics (Total Orders, Pending Verification, Waiting Payment, In Workshop, Shipped, Revenue).
 - **Orders Management**: Live search, status filter tabs, and paginated order table.
 - **Workshop 3D Inspector**: Reuses Three.js Custom Studio engine to inspect the customer's exact 3D design snapshot with OrbitControls, explode view, assemble view, and full Bill of Materials (BOM).
-- **Order Lifecycle**: Advance orders through `waiting_for_payment` → `payment_confirmation_sent` → `paid` → `in_production` → `shipped` → `completed` (or `cancelled`).
+- **Order Lifecycle**: Advance orders through `waiting_for_payment` → `payment_confirmation_sent` → `paid` → `in_production` → `shipped` → `completed` (or `cancelled`). Verifying a payment books cashbook income from any unpaid status; cancelling a verified order appends a refund that reverses it.
+- **Catalog Groups**: Publish, rename, reorder and hide the storefront collections without a deploy, and give each one a card image that becomes the background of its shop card. Hidden groups leave the shop immediately but stay attached to historical orders; the storefront falls back to the bundled catalogue whenever MySQL is unavailable. Uploaded images are resized in the browser, validated server-side, and stored in `assets/uploads/catalog/` (gitignored).
 - **Fulfillment & Notes**: Record internal notes, courier names, and tracking numbers with audit history logging.
 - **WhatsApp Direct Action**: One-click WhatsApp link pre-filled with customer greeting and order status.
 - **Accounting Cashbook**: Verified payment income, auditable expense corrections, categories, date-filtered balances, summaries, and Excel exports.
@@ -140,7 +161,7 @@ instructions.
 - WhatsApp requires the official admin number.
 - Payment status is verified by the admin in the Admin Dashboard upon checking payment proof.
 - Shipping carrier rates are confirmed manually via WhatsApp and recorded in the dashboard.
-- Orders are persisted in MySQL when the database is configured; without it the order draft stays in browser `localStorage` and the status is marked `local-demo`.
+- Orders are persisted in MySQL when the database is configured. Without it the checkout page shows an inline error, keeps the design snapshot and typed details in `localStorage`, and never invents an order number — the customer can retry once the connection is restored.
 - Automatic inventory decrement, carrier API webhooks, and live stock reservation are planned for subsequent phases.
 - The 3D models are procedural and generated in code; there are no GLB/GLTF assets yet.
 - The vendored Three.js modules are unminified (about 2.1 MB total) and lazy-loaded only in

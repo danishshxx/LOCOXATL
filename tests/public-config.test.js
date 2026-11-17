@@ -5,7 +5,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { createAppServer, listenWithFallback } = require('../server');
-const { getPublicConfig, normalizeWhatsAppNumber, validateInstagramUrl } = require('../src/server/public-config');
+const {
+  getPublicConfig,
+  normalizeWhatsAppNumber,
+  validateInstagramUrl,
+  DEFAULT_WHATSAPP_BUSINESS_NUMBER,
+  DEFAULT_INSTAGRAM_URL,
+} = require('../src/server/public-config');
 
 test('normalizes valid Indonesian WhatsApp number formats and rejects invalid input', () => {
   assert.equal(normalizeWhatsAppNumber('0812 3456-7890'), '6281234567890');
@@ -31,6 +37,41 @@ test('public config contains only validated contact details', () => {
     whatsappNumber: '6281234567890',
     instagramUrl: 'https://www.instagram.com/locoxatl/',
   });
+});
+
+test('the public contacts have working defaults so no .env file is required', () => {
+  const defaults = {
+    whatsappNumber: '6281282116351',
+    instagramUrl: 'https://www.instagram.com/locoxatl?rpxt=bGlxY2ExOGY4OWRz',
+  };
+
+  assert.deepEqual(getPublicConfig({}), defaults);
+  assert.equal(normalizeWhatsAppNumber(DEFAULT_WHATSAPP_BUSINESS_NUMBER), defaults.whatsappNumber);
+  assert.equal(validateInstagramUrl(DEFAULT_INSTAGRAM_URL), defaults.instagramUrl);
+
+  // A real deployment only needs process.env to be empty for the defaults to apply.
+  assert.deepEqual(getPublicConfig({ WHATSAPP_BUSINESS_NUMBER: '', INSTAGRAM_URL: '   ' }), defaults);
+});
+
+test('the documented placeholder tokens fall back to the defaults instead of breaking the links', () => {
+  assert.deepEqual(getPublicConfig({
+    WHATSAPP_BUSINESS_NUMBER: '[ISI_NOMOR_WA_628XXX]',
+    INSTAGRAM_URL: '[ISI_LINK_INSTAGRAM]',
+  }), {
+    whatsappNumber: '6281282116351',
+    instagramUrl: 'https://www.instagram.com/locoxatl?rpxt=bGlxY2ExOGY4OWRz',
+  });
+});
+
+test('an explicit environment value overrides the defaults', () => {
+  assert.equal(
+    getPublicConfig({ WHATSAPP_BUSINESS_NUMBER: '0812 3456 7890' }).whatsappNumber,
+    '6281234567890',
+  );
+  assert.equal(
+    getPublicConfig({ INSTAGRAM_URL: 'https://www.instagram.com/another-shop/' }).instagramUrl,
+    'https://www.instagram.com/another-shop/',
+  );
 });
 
 test('shared footer renders the configured WhatsApp and Instagram contacts', async () => {
@@ -160,7 +201,7 @@ test('success page creates a complete encoded WhatsApp message and retains copy 
   const context = {
     document: { getElementById: (id) => elements[id] },
     localStorage: { getItem: () => JSON.stringify(order) },
-    window: { location: { search: '?order=LX-ORDER-42' }, locoxatlPublicConfig: Promise.resolve({ whatsappNumber: '6281234567890' }), isSecureContext: true },
+    window: { location: { search: '?order=LX-ORDER-42' }, locoxatlPublicConfig: Promise.resolve({ whatsappNumber: '6281234567890' }), isSecureContext: true, LocoxatlWhatsApp: require('../src/whatsapp.js') },
     navigator: { clipboard: { writeText: async (value) => { copiedMessage = value; } } },
     URLSearchParams,
     Intl,
@@ -173,11 +214,13 @@ test('success page creates a complete encoded WhatsApp message and retains copy 
 
   assert.equal(elements.successWhatsApp.href.split('?')[0], 'https://wa.me/6281234567890');
   const message = new URL(elements.successWhatsApp.href).searchParams.get('text');
-  for (const detail of ['LX-ORDER-42', 'Ayu Lestari', 'BLACKPINK', 'Cloud Heart', 'Heart, Pearl drop, Initial A, Silver clasp', 'Kuantitas: 2', 'Total: Rp116.000']) {
-    assert.ok(message.includes(detail), `message should include ${detail}`);
-  }
+  assert.equal(
+    message,
+    'halo kak ingin memverifikasi pembelian dan pembayaran dengan nomor order : LX-ORDER-42',
+    'the prefilled message must match the agreed template exactly',
+  );
   assert.equal(elements.successWhatsApp.getAttribute('aria-disabled'), null);
   await elements.copyOrderMessage.onclick();
-  assert.equal(copiedMessage, message);
+  assert.equal(copiedMessage, message, 'the copy fallback must copy the same message');
   assert.equal(elements.successActionStatus.textContent, 'Order message copied.');
 });

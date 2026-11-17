@@ -1339,3 +1339,445 @@ body.admin-body {
     grid-column: auto;
   }
 }
+
+/* ==========================================================================
+   Dashboard views: tabs, catalog management, dialogs
+   ========================================================================== */
+
+.admin-view-tabs {
+  display: flex;
+  gap: 4px;
+  padding-top: 22px;
+  border-bottom: 1px solid var(--admin-border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.admin-view-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 12px 18px;
+  font-family: var(--admin-font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+
+.admin-view-tab:hover {
+  color: var(--admin-text-main);
+}
+
+.admin-view-tab.is-active {
+  color: var(--admin-text-main);
+  border-bottom-color: var(--admin-text-main);
+}
+
+.admin-view-tab:focus-visible {
+  outline: 2px solid var(--admin-text-main);
+  outline-offset: -4px;
+}
+
+.admin-view[hidden],
+[data-view-panel][hidden] {
+  display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Catalog groups
+   -------------------------------------------------------------------------- */
+.admin-catalog-section {
+  padding-top: 32px;
+  padding-bottom: 48px;
+}
+
+.catalog-table td {
+  vertical-align: middle;
+}
+
+.catalog-order-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.catalog-order-index {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--admin-text-muted);
+}
+
+.catalog-order-controls {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.catalog-move {
+  width: 22px;
+  height: 18px;
+  line-height: 1;
+  border: 1px solid var(--admin-border);
+  background: #fff;
+  border-radius: 4px;
+  font-size: 10px;
+  color: #444;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.catalog-move:hover:not(:disabled) {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.catalog-move:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.catalog-slug {
+  font-family: monospace;
+  font-size: 11px;
+  background: #f4f4f6;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: #444;
+}
+
+.catalog-description-cell {
+  color: var(--admin-text-muted);
+  max-width: 320px;
+}
+
+.catalog-source-note {
+  margin: 0;
+  padding: 14px 18px;
+  border-top: 1px solid var(--admin-border);
+  font-size: 11px;
+  color: var(--admin-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Toggle switch
+   -------------------------------------------------------------------------- */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  position: relative;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.toggle-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 99px;
+  background: #d8d8dc;
+  position: relative;
+  flex: none;
+  transition: background 0.18s ease;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.18s ease;
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: var(--admin-text-main);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(14px);
+}
+
+.toggle-switch input:focus-visible + .toggle-track {
+  outline: 2px solid var(--admin-text-main);
+  outline-offset: 2px;
+}
+
+.toggle-label {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.toggle-switch input:checked ~ .toggle-label {
+  color: var(--admin-text-main);
+}
+
+/* --------------------------------------------------------------------------
+   Catalog group dialog
+   -------------------------------------------------------------------------- */
+.admin-modal {
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.25);
+}
+
+.admin-modal:focus,
+.admin-drawer:focus {
+  outline: none;
+}
+
+.admin-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 28px 8px;
+}
+
+.admin-modal-header h2 {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+  margin: 4px 0 0;
+}
+
+.admin-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 28px 28px;
+}
+
+.admin-modal-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.admin-modal-form input[type='text'],
+.admin-modal-form input[type='number'],
+.admin-modal-form textarea {
+  font-family: var(--admin-font);
+  font-size: 13px;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--admin-text-main);
+}
+
+.admin-modal-form input:focus,
+.admin-modal-form textarea:focus {
+  outline: none;
+  border-color: var(--admin-text-main);
+}
+
+.admin-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: end;
+}
+
+.catalog-toggle-field {
+  align-items: flex-start;
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   Interaction polish
+   -------------------------------------------------------------------------- */
+.admin-body :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--admin-text-main);
+  outline-offset: 2px;
+}
+
+.status-badge-lg,
+.status-pill {
+  border: 1px solid currentColor;
+}
+
+/* --------------------------------------------------------------------------
+   Catalog card images
+   -------------------------------------------------------------------------- */
+.catalog-group-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.catalog-thumb {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 8px;
+  background-color: #eee;
+  background-size: cover;
+  background-position: center;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #bbb;
+}
+
+.catalog-thumb.is-empty {
+  border: 1px dashed var(--admin-border);
+  background-color: #fafafc;
+}
+
+.catalog-image-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.catalog-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+}
+
+.catalog-image-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.catalog-image-preview[hidden] {
+  display: none;
+}
+
+.catalog-image-preview img {
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--admin-border);
+  background: #f4f4f6;
+}
+
+.catalog-image-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed var(--admin-border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.catalog-image-picker:hover {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.catalog-image-picker input {
+  font-size: 10px;
+  color: #555;
+  max-width: 100%;
+}
+
+.catalog-image-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--admin-text-muted);
+}
+
+.catalog-image-note[hidden] {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Payment verification states
+   -------------------------------------------------------------------------- */
+.tab-chip-attention {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.tab-chip-attention.active {
+  background: var(--admin-text-main);
+  border-color: var(--admin-text-main);
+  color: #fff;
+}
+
+.status-meta {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--admin-text-muted);
+}
+
+.status-meta[hidden] {
+  display: none;
+}
+
+.admin-orders-table tr.row-attention td:first-child {
+  box-shadow: inset 3px 0 0 var(--admin-text-main);
+}
+
+@media (max-width: 720px) {
+  .admin-view-tabs {
+    padding-top: 14px;
+  }
+
+  .admin-view-tab {
+    padding: 10px 12px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  .admin-modal-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-modal-header {
+    padding: 22px 20px 6px;
+  }
+
+  .admin-modal-form {
+    padding: 12px 20px 22px;
+  }
+
+  .catalog-description-cell {
+    max-width: 180px;
+  }
+}

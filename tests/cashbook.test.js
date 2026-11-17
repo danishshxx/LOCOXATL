@@ -87,6 +87,21 @@ async function execute(sql, params = []) {
   if (/^SELECT id, entry_type, amount, category_id, description, payment_method, notes, transaction_date FROM cashbook_entries WHERE id = \? LIMIT 1 FOR UPDATE$/i.test(query)) {
     return [entries.filter((row) => row.id === Number(params[0])).map((row) => ({ ...row }))];
   }
+  if (/^SELECT id, amount FROM cashbook_entries WHERE order_id = \? AND entry_type = 'income'/i.test(query)) {
+    return [entries
+      .filter((row) => row.order_id === Number(params[0]) && row.entry_type === 'income')
+      .map(({ id, amount }) => ({ id, amount }))];
+  }
+  if (/^SELECT reverses_entry_id FROM cashbook_entries WHERE order_id = \?/i.test(query)) {
+    return [entries
+      .filter((row) => row.order_id === Number(params[0]) && row.reverses_entry_id)
+      .map(({ reverses_entry_id }) => ({ reverses_entry_id }))];
+  }
+  if (/^SELECT id FROM cashbook_categories WHERE name = \? AND entry_type = \? AND is_active = 1/i.test(query)) {
+    return [categories
+      .filter((row) => row.name === params[0] && row.entry_type === params[1] && row.is_active)
+      .map(({ id }) => ({ id }))];
+  }
   if (/^SELECT id FROM cashbook_entries WHERE supersedes_entry_id = \? LIMIT 1$/i.test(query)) {
     return [entries.filter((row) => row.supersedes_entry_id === Number(params[0])).map(({ id }) => ({ id }))];
   }
@@ -367,7 +382,7 @@ function addOrder({ orderNumber, status, amount, createdAt = `${today} 10:00:00`
   return order;
 }
 
-test('only payment confirmation to paid writes one income and preserves order configuration', async () => {
+test('verifying payment writes one income from any unpaid status and preserves order configuration', async () => {
   const order = addOrder({ orderNumber: `LX-CASH-${crypto.randomBytes(3).toString('hex')}`, status: 'payment_confirmation_sent', amount: 125000 });
   const originalConfiguration = configurations.find((row) => row.order_item_id === order.id).configuration_json;
 
@@ -386,7 +401,15 @@ test('only payment confirmation to paid writes one income and preserves order co
 
   const unpaid = addOrder({ orderNumber: `LX-UNPAID-${crypto.randomBytes(3).toString('hex')}`, status: 'waiting_for_payment', amount: 99000 });
   await ordersModule.updateOrderStatusAdmin(unpaid.order_number, 'paid', { adminUserId: 7 });
-  assert.equal(entries.some((entry) => entry.order_id === unpaid.id), false);
+  const unpaidIncome = entries.filter((entry) => entry.order_id === unpaid.id);
+  assert.equal(unpaidIncome.length, 1, 'verifying straight from waiting_for_payment must still book income');
+  assert.equal(unpaidIncome[0].amount, 99000);
+  assert.equal(unpaidIncome[0].source_key, `order-paid:${unpaid.id}`);
+
+  // Re-verifying the same order stays idempotent even when the status was moved back.
+  unpaid.order_status = 'waiting_for_payment';
+  await ordersModule.updateOrderStatusAdmin(unpaid.order_number, 'paid', { adminUserId: 7 });
+  assert.equal(entries.filter((entry) => entry.order_id === unpaid.id).length, 1, 'no duplicate income rows');
 });
 
 test('verified payment and income record roll back together when cashbook setup is unavailable', async () => {
@@ -424,7 +447,7 @@ test('expenses validate, persist notes, support append-only correction, and calc
     correctionNote: 'Entered the wrong invoice amount',
   }, 7);
   assert.equal(correction.supersedesEntryId, first.id);
-  assert.equal(entries.length, 3);
+  assert.equal(entries.filter((entry) => entry.entry_type === 'expense').length, 2);
   const history = await cashbook.getEntryHistory(correction.id);
   assert.equal(history.length, 2);
   assert.equal(history[0].amount, 22000);

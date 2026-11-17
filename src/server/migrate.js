@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { getPool, isConfigured } = require('./db');
+const { seedCatalogGroups } = require('./catalog');
 
 function parseSchemaStatements(sql) {
   return sql
@@ -10,6 +11,33 @@ function parseSchemaStatements(sql) {
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean);
+}
+
+async function tableColumns(connection, table) {
+  const [rows] = await connection.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+    [table],
+  );
+  return new Set(rows.map((row) => String(row.COLUMN_NAME).toLowerCase()));
+}
+
+async function tableIndexes(connection, table) {
+  const [rows] = await connection.query(
+    `SELECT DISTINCT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+    [table],
+  );
+  return new Set(rows.map((row) => String(row.INDEX_NAME).toLowerCase()));
+}
+
+async function tableConstraints(connection, table) {
+  const [rows] = await connection.query(
+    `SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+    [table],
+  );
+  return new Set(rows.map((row) => String(row.CONSTRAINT_NAME).toLowerCase()));
 }
 
 async function assertSelectedDatabase(connection) {
@@ -148,23 +176,79 @@ async function runAdditiveMigrations() {
         source_key VARCHAR(120) NULL,
         admin_user_id BIGINT UNSIGNED NULL,
         supersedes_entry_id BIGINT UNSIGNED NULL,
+        reverses_entry_id BIGINT UNSIGNED NULL,
         correction_note VARCHAR(500) NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         UNIQUE KEY uq_cashbook_source_key (source_key),
-        UNIQUE KEY uq_cashbook_order_entry_type (order_id, entry_type),
         UNIQUE KEY uq_cashbook_supersedes_entry (supersedes_entry_id),
+        UNIQUE KEY uq_cashbook_reverses_entry (reverses_entry_id),
         KEY idx_cashbook_type_date (entry_type, transaction_date),
         KEY idx_cashbook_date (transaction_date),
         KEY idx_cashbook_category_date (category_id, transaction_date),
+        KEY idx_cashbook_order (order_id),
         CONSTRAINT fk_cashbook_category FOREIGN KEY (category_id) REFERENCES cashbook_categories (id) ON DELETE RESTRICT,
         CONSTRAINT fk_cashbook_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT,
         CONSTRAINT fk_cashbook_admin FOREIGN KEY (admin_user_id) REFERENCES admin_users (id) ON DELETE SET NULL,
         CONSTRAINT fk_cashbook_supersedes FOREIGN KEY (supersedes_entry_id) REFERENCES cashbook_entries (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_cashbook_reverses FOREIGN KEY (reverses_entry_id) REFERENCES cashbook_entries (id) ON DELETE RESTRICT,
         CONSTRAINT chk_cashbook_amount_positive CHECK (amount > 0)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Existing installations carry the older unique key that allowed one income row per order
+    // for ever. Reversal + re-verification needs multiple income rows, so the key is dropped;
+    // idempotency now comes from uq_cashbook_source_key and the reversal pointer.
+    const cashbookIndexes = await tableIndexes(connection, 'cashbook_entries');
+    if (cashbookIndexes.has('uq_cashbook_order_entry_type')) {
+      await connection.query('ALTER TABLE cashbook_entries DROP INDEX uq_cashbook_order_entry_type');
+    }
+
+    const cashbookColumns = await tableColumns(connection, 'cashbook_entries');
+    if (!cashbookColumns.has('reverses_entry_id')) {
+      await connection.query(
+        'ALTER TABLE cashbook_entries ADD COLUMN reverses_entry_id BIGINT UNSIGNED NULL AFTER supersedes_entry_id',
+      );
+    }
+
+    const cashbookConstraints = await tableConstraints(connection, 'cashbook_entries');
+    if (!cashbookConstraints.has('fk_cashbook_reverses')) {
+      const refreshedIndexes = await tableIndexes(connection, 'cashbook_entries');
+      if (!refreshedIndexes.has('uq_cashbook_reverses_entry')) {
+        await connection.query(
+          'ALTER TABLE cashbook_entries ADD UNIQUE KEY uq_cashbook_reverses_entry (reverses_entry_id)',
+        );
+      }
+      await connection.query(
+        `ALTER TABLE cashbook_entries
+         ADD CONSTRAINT fk_cashbook_reverses FOREIGN KEY (reverses_entry_id)
+         REFERENCES cashbook_entries (id) ON DELETE RESTRICT`,
+      );
+    }
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS catalog_groups (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        slug VARCHAR(64) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        tagline VARCHAR(255) NOT NULL DEFAULT '',
+        description TEXT NULL,
+        image_url VARCHAR(255) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_catalog_groups_slug (slug),
+        KEY idx_catalog_groups_active_order (is_active, sort_order)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    const catalogColumns = await tableColumns(connection, 'catalog_groups');
+    if (!catalogColumns.has('image_url')) {
+      await connection.query('ALTER TABLE catalog_groups ADD COLUMN image_url VARCHAR(255) NULL AFTER description');
+    }
 
     await connection.query(
       `INSERT IGNORE INTO cashbook_categories (name, entry_type) VALUES
@@ -175,13 +259,17 @@ async function runAdditiveMigrations() {
         ('Shipping', 'expense'),
         ('Marketing', 'expense'),
         ('Operational', 'expense'),
-        ('Other', 'expense')`,
+        ('Other', 'expense'),
+        ('Order Refunds', 'expense')`,
     );
+
+    const catalogSeed = await seedCatalogGroups();
 
     return {
       success: true,
       databaseName,
       addedColumns: missingColumns.map((c) => c.name),
+      catalogGroupsSeeded: catalogSeed.seeded || 0,
     };
   } finally {
     connection.release();

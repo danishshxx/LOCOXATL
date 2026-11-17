@@ -17,13 +17,19 @@ const {
   validateAdminSession,
   destroyAdminSession,
   extractAdminToken,
+  checkLoginRateLimit,
+  recordLoginFailure,
+  clearLoginFailures,
   SESSION_TTL_SECONDS,
 } = require('./auth');
 const cashbook = require('./cashbook');
+const serverCatalog = require('./catalog');
 const { createReportWorkbook, getReportSummary, parseScope } = require('./reports');
 const { getPublicConfig } = require('./public-config');
 
 const MAX_BODY_BYTES = 512 * 1024;
+// Uploads arrive as a base64 data URL, which inflates the payload by roughly a third.
+const MAX_IMAGE_BODY_BYTES = 5 * 1024 * 1024;
 
 async function resolveAdminSession(request) {
   const token = extractAdminToken(request);
@@ -78,7 +84,7 @@ function sessionCookie(token, request, maxAge = SESSION_TTL_SECONDS) {
   return `admin_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 
-function readJsonBody(request) {
+function readJsonBody(request, { maxBytes = MAX_BODY_BYTES } = {}) {
   return new Promise((resolve, reject) => {
     const contentType = String(request.headers['content-type'] || '');
     if (!contentType.toLowerCase().includes('application/json')) {
@@ -92,7 +98,7 @@ function readJsonBody(request) {
     let size = 0;
     request.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
         const error = new Error('Request body is too large.');
         error.code = 'PAYLOAD_TOO_LARGE';
         reject(error);
@@ -217,6 +223,16 @@ async function handleApiRequest(request, response, url) {
       return true;
     }
 
+    if (segments.length === 2 && segments[1] === 'catalog') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
+        return true;
+      }
+      const { source, groups, products } = await serverCatalog.loadCatalog({ activeOnly: true });
+      sendJson(response, 200, { ok: true, source, groups, products });
+      return true;
+    }
+
     if (segments[1] === 'orders') {
       // POST /api/orders
       if (segments.length === 2) {
@@ -264,8 +280,23 @@ async function handleApiRequest(request, response, url) {
           return true;
         }
         const body = await readJsonBody(request);
+        const limit = checkLoginRateLimit(request, body.username);
+        if (limit.blocked) {
+          sendJson(
+            response,
+            429,
+            {
+              error: 'too_many_attempts',
+              message: 'Too many failed sign-in attempts. Try again later.',
+            },
+            { 'Retry-After': String(limit.retryAfter) },
+          );
+          return true;
+        }
+
         const session = await authenticateAdmin(body.username, body.password);
         if (session) {
+          clearLoginFailures(request, body.username);
           sendJson(
             response,
             200,
@@ -273,6 +304,7 @@ async function handleApiRequest(request, response, url) {
             { 'Set-Cookie': sessionCookie(session.token, request) },
           );
         } else {
+          recordLoginFailure(request, body.username);
           sendJson(response, 401, { error: 'invalid_credentials', message: 'Invalid admin username or password.' });
         }
         return true;
@@ -310,6 +342,55 @@ async function handleApiRequest(request, response, url) {
       const currentSession = await resolveAdminSession(request);
       if (!currentSession) {
         sendJson(response, 401, { error: 'unauthorized', message: 'Admin authentication required.' });
+        return true;
+      }
+
+      if (segments[2] === 'catalog' && segments[3] === 'groups') {
+        if (segments.length === 4) {
+          if (request.method === 'GET') {
+            const groups = await serverCatalog.listAllGroups();
+            sendJson(response, 200, { ok: true, groups });
+            return true;
+          }
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request);
+            const group = await serverCatalog.createGroup(body);
+            sendJson(response, 201, { ok: true, group });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+          return true;
+        }
+
+        if (segments.length === 5) {
+          if (request.method !== 'PATCH') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
+            return true;
+          }
+          const body = await readJsonBody(request);
+          const group = await serverCatalog.updateGroup(segments[4], body);
+          sendJson(response, 200, { ok: true, group });
+          return true;
+        }
+
+        // POST/DELETE /api/admin/catalog/groups/:id/image
+        if (segments.length === 6 && segments[5] === 'image') {
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const group = await serverCatalog.setGroupImage(segments[4], body.dataUrl);
+            sendJson(response, 200, { ok: true, group });
+            return true;
+          }
+          if (request.method === 'DELETE') {
+            const group = await serverCatalog.clearGroupImage(segments[4]);
+            sendJson(response, 200, { ok: true, group });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'POST, DELETE' });
+          return true;
+        }
+
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown catalog route.' });
         return true;
       }
 
