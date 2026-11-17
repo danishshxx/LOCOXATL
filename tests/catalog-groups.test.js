@@ -17,7 +17,37 @@ const groups = [
 ];
 let nextId = 4;
 
+// Product designs for the two active collections, mirroring what migration 005 seeds.
+const products = [];
+let nextProductId = 1;
+for (const group of groups.filter((row) => row.is_active)) {
+  for (const [index, template] of staticCatalog.productTemplates.entries()) {
+    products.push({
+      id: nextProductId++,
+      group_id: group.id,
+      slug: template.templateSlug,
+      name: template.name,
+      template_key: template.templateKey,
+      description: template.description,
+      base_price: template.price,
+      image_url: null,
+      is_active: 1,
+      sort_order: index,
+    });
+  }
+}
+
+const pricing = [
+  { id: 1, category: 'addon', option_key: 'pearl', label: 'Pearl drop', price: 8000, is_active: 1, sort_order: 0 },
+  { id: 2, category: 'addon', option_key: 'star', label: 'Mini star', price: 12000, is_active: 1, sort_order: 1 },
+  { id: 3, category: 'addon', option_key: 'initial', label: 'Your initial', price: 5000, is_active: 1, sort_order: 2 },
+  { id: 4, category: 'clasp', option_key: 'silver', label: 'Silver clasp', price: 7000, is_active: 1, sort_order: 0 },
+  { id: 5, category: 'clasp', option_key: 'black', label: 'Black clasp', price: 5000, is_active: 1, sort_order: 1 },
+];
+
 const COLUMNS = 'id, slug, name, tagline, description, image_url, is_active, sort_order, created_at, updated_at';
+const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
+const PRICING_COLUMNS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 function withTimestamps(row) {
   return { created_at: '2026-11-17 09:00:00', updated_at: '2026-11-17 09:00:00', ...row };
@@ -64,6 +94,20 @@ async function execute(sql, params = []) {
       row[field] = params[index];
     });
     return [{ affectedRows: 1 }];
+  }
+
+  // --- product designs and studio pricing (migration 005) --------------------
+  if (new RegExp(`^SELECT ${PRODUCT_COLUMNS} FROM catalog_products WHERE is_active = 1 ORDER BY`, 'i').test(query)) {
+    return [products.filter((row) => row.is_active).map(withTimestamps)];
+  }
+  if (new RegExp(`^SELECT ${PRODUCT_COLUMNS} FROM catalog_products ORDER BY`, 'i').test(query)) {
+    return [products.map(withTimestamps)];
+  }
+  if (new RegExp(`^SELECT ${PRICING_COLUMNS} FROM pricing_options WHERE is_active = 1 ORDER BY`, 'i').test(query)) {
+    return [pricing.filter((row) => row.is_active).map(withTimestamps)];
+  }
+  if (new RegExp(`^SELECT ${PRICING_COLUMNS} FROM pricing_options ORDER BY`, 'i').test(query)) {
+    return [pricing.map(withTimestamps)];
   }
 
   throw new Error(`Unexpected catalog test SQL: ${query}`);

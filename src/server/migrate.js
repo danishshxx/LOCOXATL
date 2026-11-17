@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { getPool, isConfigured } = require('./db');
-const { seedCatalogGroups } = require('./catalog');
+const { seedCatalogGroups, seedCatalogProducts, seedPricingOptions } = require('./catalog');
 
 function parseSchemaStatements(sql) {
   return sql
@@ -258,6 +258,50 @@ async function runAdditiveMigrations() {
       await connection.query('ALTER TABLE catalog_groups ADD COLUMN image_url VARCHAR(255) NULL AFTER description');
     }
 
+    // 5. Product designs per collection and the editable studio price table (migration 005).
+    //    Both are additive: existing rows are never rewritten, and the seeders below only run
+    //    when their table is still empty.
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS catalog_products (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        group_id INT UNSIGNED NOT NULL,
+        slug VARCHAR(64) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        template_key VARCHAR(64) NOT NULL,
+        description TEXT NULL,
+        base_price INT UNSIGNED NOT NULL,
+        image_url VARCHAR(255) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_group_product_slug (group_id, slug),
+        KEY idx_catalog_product_group (group_id),
+        CONSTRAINT fk_catalog_product_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS pricing_options (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        category VARCHAR(32) NOT NULL,
+        option_key VARCHAR(64) NOT NULL,
+        label VARCHAR(120) NOT NULL,
+        price INT UNSIGNED NOT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_pricing_option_key (option_key),
+        KEY idx_pricing_category_order (category, sort_order)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    const catalogSeed = await seedCatalogGroups();
+    const pricingSeed = await seedPricingOptions();
+    const productSeed = await seedCatalogProducts();
+
     await connection.query(
       `INSERT IGNORE INTO cashbook_categories (name, entry_type) VALUES
         ('Verified Order Income', 'income'),
@@ -271,13 +315,13 @@ async function runAdditiveMigrations() {
         ('Order Refunds', 'expense')`,
     );
 
-    const catalogSeed = await seedCatalogGroups();
-
     return {
       success: true,
       databaseName,
       addedColumns: missingColumns.map((c) => c.name),
       catalogGroupsSeeded: catalogSeed.seeded || 0,
+      pricingOptionsSeeded: pricingSeed.seeded || 0,
+      catalogProductsSeeded: productSeed.seeded || 0,
     };
   } finally {
     connection.release();

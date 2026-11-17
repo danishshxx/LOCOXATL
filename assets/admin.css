@@ -1754,6 +1754,121 @@ body.admin-body {
   box-shadow: inset 3px 0 0 var(--admin-text-main);
 }
 
+/* --------------------------------------------------------------------------
+   Catalog sub-tabs: collections, product designs, pricing
+   -------------------------------------------------------------------------- */
+.catalog-subtabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 26px 0 20px;
+}
+
+.catalog-subtab {
+  appearance: none;
+  border: 1px solid var(--admin-border);
+  background: #fff;
+  border-radius: 99px;
+  padding: 9px 16px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: .08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+
+.catalog-subtab:hover {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.catalog-subtab.is-active {
+  background: var(--admin-text-main);
+  border-color: var(--admin-text-main);
+  color: #fff;
+}
+
+.catalog-subtab:focus-visible {
+  outline: 2px solid var(--admin-text-main);
+  outline-offset: 2px;
+}
+
+.catalog-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+}
+
+.catalog-toolbar-end {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.catalog-select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: .1em;
+  font-weight: 700;
+  color: var(--admin-text-muted);
+  text-transform: uppercase;
+}
+
+.catalog-select-field select {
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 9px 12px;
+  border: 1px solid var(--admin-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--admin-text-main);
+  min-width: 190px;
+}
+
+.pricing-table td {
+  vertical-align: middle;
+}
+
+.pricing-table .pricing-label-input,
+.pricing-table .pricing-price-input {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--admin-text-main);
+}
+
+.pricing-table .pricing-price-input {
+  max-width: 150px;
+  text-align: right;
+}
+
+.pricing-table .pricing-label-input:focus,
+.pricing-table .pricing-price-input:focus {
+  outline: none;
+  border-color: var(--admin-text-main);
+}
+
+.pricing-group-row td {
+  background: #f7f7f7;
+  font-size: 9px;
+  letter-spacing: .14em;
+  font-weight: 700;
+  color: var(--admin-text-muted);
+  padding: 8px 12px;
+}
+
 @media (max-width: 720px) {
   .admin-view-tabs {
     padding-top: 14px;

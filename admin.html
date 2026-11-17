@@ -90,7 +90,7 @@
     <nav class="admin-view-tabs section-wrap" id="adminViewTabs" aria-label="Dashboard views" role="tablist">
       <button type="button" class="admin-view-tab is-active" role="tab" aria-selected="true" aria-controls="viewOrders" id="tabOrders" data-view="orders">Orders</button>
       <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewAccounting" id="tabAccounting" data-view="accounting">Cashbook &amp; Reports</button>
-      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewCatalog" id="tabCatalog" data-view="catalog">Catalog Groups</button>
+      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewCatalog" id="tabCatalog" data-view="catalog">Catalog</button>
     </nav>
 
     <div class="admin-view" id="viewOrders" role="tabpanel" aria-labelledby="tabOrders" data-view-panel="orders">
@@ -354,34 +354,100 @@
       <div class="admin-section-heading">
         <div>
           <span class="eyebrow">STOREFRONT CURATION</span>
-          <h1>Catalog Groups</h1>
-          <p class="accounting-intro">Publish, rename and reorder the collections shown on the storefront. Hidden groups disappear from the shop but stay attached to historical orders.</p>
-        </div>
-        <div class="heading-actions">
-          <button type="button" class="button button-dark button-small" id="addGroupBtn">+ Add Group</button>
-          <button type="button" class="button button-outline button-small" id="refreshCatalogBtn">Refresh</button>
+          <h1>Catalog</h1>
+          <p class="accounting-intro">Publish collections, design the products inside them, and price the studio options. Everything here feeds the storefront and the order pricing directly.</p>
         </div>
       </div>
 
-      <div class="admin-table-card">
-        <div class="table-wrap">
-          <table class="admin-orders-table catalog-table">
-            <thead>
-              <tr>
-                <th class="th-order">ORDER</th>
-                <th>GROUP</th>
-                <th>SLUG</th>
-                <th>TAGLINE</th>
-                <th>STORE</th>
-                <th class="th-actions">ACTIONS</th>
-              </tr>
-            </thead>
-            <tbody id="catalogGroupsBody">
-              <tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>
-            </tbody>
-          </table>
+      <nav class="catalog-subtabs" id="catalogSubtabs" role="tablist" aria-label="Catalog sections">
+        <button type="button" class="catalog-subtab is-active" role="tab" aria-selected="true" aria-controls="catalogPanelGroups" id="catalogTabGroups" data-catalog-tab="groups">Collections</button>
+        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="catalogPanelProducts" id="catalogTabProducts" data-catalog-tab="products">Product Designs</button>
+        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="catalogPanelPricing" id="catalogTabPricing" data-catalog-tab="pricing">Pricing</button>
+      </nav>
+
+      <div class="catalog-panel" id="catalogPanelGroups" data-catalog-panel="groups" role="tabpanel" aria-labelledby="catalogTabGroups">
+        <div class="catalog-toolbar">
+          <button type="button" class="button button-dark button-small" id="addGroupBtn">+ Add Group</button>
+          <button type="button" class="button button-outline button-small" id="refreshCatalogBtn">Refresh</button>
         </div>
-        <p class="catalog-source-note" id="catalogSourceNote" role="status"></p>
+        <div class="admin-table-card">
+          <div class="table-wrap">
+            <table class="admin-orders-table catalog-table">
+              <thead>
+                <tr>
+                  <th class="th-order">ORDER</th>
+                  <th>GROUP</th>
+                  <th>SLUG</th>
+                  <th>TAGLINE</th>
+                  <th>STORE</th>
+                  <th class="th-actions">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody id="catalogGroupsBody">
+                <tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="catalog-source-note" id="catalogSourceNote" role="status"></p>
+        </div>
+      </div>
+
+      <div class="catalog-panel" id="catalogPanelProducts" data-catalog-panel="products" role="tabpanel" aria-labelledby="catalogTabProducts" hidden>
+        <div class="catalog-toolbar">
+          <label class="catalog-select-field">Collection
+            <select id="productGroupFilter">
+              <option value="">All groups</option>
+            </select>
+          </label>
+          <button type="button" class="button button-dark button-small" id="addProductBtn">+ Add Product Design</button>
+          <button type="button" class="button button-outline button-small" id="refreshProductsBtn">Refresh</button>
+        </div>
+        <div class="admin-table-card">
+          <div class="table-wrap">
+            <table class="admin-orders-table catalog-table">
+              <thead>
+                <tr>
+                  <th class="th-order">ORDER</th>
+                  <th>DESIGN</th>
+                  <th>COLLECTION</th>
+                  <th>3D TEMPLATE</th>
+                  <th>BASE PRICE</th>
+                  <th>STORE</th>
+                  <th class="th-actions">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody id="catalogProductsBody">
+                <tr><td colspan="7" class="table-loading">Loading product designs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="catalog-source-note" id="productSourceNote" role="status"></p>
+        </div>
+      </div>
+
+      <div class="catalog-panel" id="catalogPanelPricing" data-catalog-panel="pricing" role="tabpanel" aria-labelledby="catalogTabPricing" hidden>
+        <div class="admin-table-card">
+          <div class="table-wrap">
+            <table class="admin-orders-table pricing-table">
+              <thead>
+                <tr>
+                  <th>OPTION</th>
+                  <th>KEY</th>
+                  <th>PRICE (IDR)</th>
+                  <th>STORE</th>
+                </tr>
+              </thead>
+              <tbody id="pricingBody">
+                <tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="catalog-source-note" id="pricingNote" role="status"></p>
+        </div>
+        <div class="catalog-toolbar catalog-toolbar-end">
+          <button type="button" class="button button-outline button-small" id="refreshPricingBtn">Reload</button>
+          <button type="button" class="button button-dark button-small" id="savePricingBtn">Save Pricing</button>
+        </div>
       </div>
     </section>
 
@@ -625,6 +691,54 @@
         <div class="admin-modal-actions">
           <button type="button" class="button button-outline button-small" id="groupFormCancel">Cancel</button>
           <button type="submit" class="button button-dark button-small" id="groupFormSubmit">Save group</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Product design editor -->
+  <div class="admin-modal-backdrop" id="productModalBackdrop" hidden>
+    <div class="admin-modal" id="productModal" role="dialog" aria-modal="true" aria-labelledby="productModalTitle" tabindex="-1">
+      <div class="admin-modal-header">
+        <div>
+          <span class="eyebrow" id="productModalEyebrow">NEW DESIGN</span>
+          <h2 id="productModalTitle">Add product design</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" id="productModalClose" aria-label="Close product form">✕</button>
+      </div>
+      <form id="productForm" class="admin-modal-form">
+        <input type="hidden" id="productFormId" />
+        <label>Design name <input type="text" id="productName" maxlength="120" required placeholder="e.g. Cloud Heart" autocomplete="off" /></label>
+        <label>Collection <select id="productGroup" required></select></label>
+        <label>Slug <input type="text" id="productSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
+        <label>3D template <select id="productTemplate"></select></label>
+        <label>Base price (Rp) <input type="number" id="productBasePrice" min="0" step="1000" required placeholder="45000" /></label>
+        <label class="accounting-wide-field">Description <textarea id="productDescription" rows="3" maxlength="2000" placeholder="Shown on the collection page"></textarea></label>
+        <div class="catalog-image-field">
+          <span class="catalog-field-label">Design image</span>
+          <div class="catalog-image-preview" id="productImagePreview" hidden>
+            <img id="productImageThumb" alt="Selected design image" />
+            <button type="button" class="text-link" id="productImageRemove">Remove image</button>
+          </div>
+          <label class="catalog-image-picker">
+            <input type="file" id="productImageInput" accept="image/png,image/jpeg,image/webp" />
+            <span>Choose an image — PNG, JPEG or WebP, up to 3 MB</span>
+          </label>
+          <p class="catalog-image-note" id="productImageNote" role="status"></p>
+        </div>
+        <div class="admin-modal-row">
+          <label>Sort order <input type="number" id="productSortOrder" step="1" min="-9999" max="9999" /></label>
+          <label class="catalog-toggle-field">Visible on storefront
+            <span class="toggle-switch">
+              <input type="checkbox" id="productIsActive" checked />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+        <p class="admin-auth-error" id="productFormError" role="alert" hidden></p>
+        <div class="admin-modal-actions">
+          <button type="button" class="button button-outline button-small" id="productFormCancel">Cancel</button>
+          <button type="submit" class="button button-dark button-small" id="productFormSubmit">Save design</button>
         </div>
       </form>
     </div>

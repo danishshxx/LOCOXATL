@@ -228,8 +228,8 @@ async function handleApiRequest(request, response, url) {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
         return true;
       }
-      const { source, groups, products } = await serverCatalog.loadCatalog({ activeOnly: true });
-      sendJson(response, 200, { ok: true, source, groups, products });
+      const { source, groups, products, options } = await serverCatalog.loadCatalog({ activeOnly: true });
+      sendJson(response, 200, { ok: true, source, groups, products, options });
       return true;
     }
 
@@ -342,6 +342,56 @@ async function handleApiRequest(request, response, url) {
       const currentSession = await resolveAdminSession(request);
       if (!currentSession) {
         sendJson(response, 401, { error: 'unauthorized', message: 'Admin authentication required.' });
+        return true;
+      }
+
+      // GET/POST /api/admin/catalog/products  ·  PATCH /api/admin/catalog/products/:id
+      if (segments[2] === 'catalog' && segments[3] === 'products') {
+        if (segments.length === 4) {
+          if (request.method === 'GET') {
+            const products = await serverCatalog.listProducts({ groupId: url.searchParams.get('groupId') });
+            sendJson(response, 200, { ok: true, products });
+            return true;
+          }
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const product = await serverCatalog.createProduct(body);
+            sendJson(response, 201, { ok: true, product });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+          return true;
+        }
+
+        if (segments.length === 5) {
+          if (request.method !== 'PATCH') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
+            return true;
+          }
+          const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+          const product = await serverCatalog.updateProduct(segments[4], body);
+          sendJson(response, 200, { ok: true, product });
+          return true;
+        }
+
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown product route.' });
+        return true;
+      }
+
+      // GET/PATCH /api/admin/pricing
+      if (segments.length === 3 && segments[2] === 'pricing') {
+        if (request.method === 'GET') {
+          const options = await serverCatalog.listPricing();
+          sendJson(response, 200, { ok: true, options });
+          return true;
+        }
+        if (request.method === 'PATCH') {
+          const body = await readJsonBody(request);
+          const options = await serverCatalog.updatePricing(body);
+          sendJson(response, 200, { ok: true, options });
+          return true;
+        }
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, PATCH' });
         return true;
       }
 

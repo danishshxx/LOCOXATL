@@ -42,6 +42,7 @@ existing database, or just run `npm run db:migrate`, which applies all of them:
 | `database/migrations/002_cashbook.sql` | `cashbook_categories`, `cashbook_entries` |
 | `database/migrations/003_catalog_groups.sql` | `catalog_groups`, cashbook reversal pointer, `Order Refunds` category, drops the obsolete one-income-per-order key |
 | `database/migrations/004_catalog_group_images.sql` | `catalog_groups.image_url` |
+| `database/migrations/005_products_and_pricing.sql` | `catalog_products`, `pricing_options`, seeds the three standard designs per collection and the bundled studio prices |
 
 `003` supersedes part of `002`'s original definition: it drops
 `uq_cashbook_order_entry_type` so a refunded order can be verified again. Because

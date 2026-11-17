@@ -43,9 +43,17 @@
   let accountingSummaryPoll = null;
   let activeView = 'orders';
   let catalogGroups = [];
+  let catalogTab = 'groups';
+  let catalogProducts = [];
+  let pricingOptions = [];
   let lastFocusedElement = null;
   let pendingImageData = null;
   let pendingImageRemoval = false;
+  let pendingProductImage = null;
+  let pendingProductImageRemoval = false;
+
+  const catalogTemplates = (window.LocoxatlCatalog && window.LocoxatlCatalog.productTemplates) || [];
+  const templateKeys = catalogTemplates.map((template) => template.templateKey);
 
   // ---------------------------------------------------------------------------
   // API Client with Auth
@@ -1117,7 +1125,7 @@
       tab.setAttribute('aria-selected', String(isActive));
     });
 
-    if (target === 'catalog' && !catalogGroups.length) loadCatalogGroups();
+    if (target === 'catalog') setCatalogTab(catalogTab);
     if (target === 'accounting') refreshAccounting();
   }
 
@@ -1428,6 +1436,449 @@
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Catalog sub-tabs: Collections / Product Designs / Pricing
+  // ---------------------------------------------------------------------------
+  function setCatalogTab(tab) {
+    const target = ['groups', 'products', 'pricing'].includes(tab) ? tab : 'groups';
+    catalogTab = target;
+
+    $$('[data-catalog-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.catalogPanel !== target;
+    });
+    $$('#catalogSubtabs .catalog-subtab').forEach((button) => {
+      const isActive = button.dataset.catalogTab === target;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-selected', String(isActive));
+    });
+
+    if (target === 'groups' && !catalogGroups.length) loadCatalogGroups();
+    if (target === 'products') loadCatalogProducts();
+    if (target === 'pricing' && !pricingOptions.length) loadPricing();
+  }
+
+  $$('#catalogSubtabs .catalog-subtab').forEach((button) => {
+    button.addEventListener('click', () => setCatalogTab(button.dataset.catalogTab));
+  });
+
+  function fillTemplateSelect() {
+    const select = $('#productTemplate');
+    if (!select || select.options.length || !catalogTemplates.length) return;
+    select.innerHTML = catalogTemplates
+      .map((template) => `<option value="${template.templateKey}">${template.templateKey} · ${escapeHtml(template.name)}</option>`)
+      .join('');
+  }
+
+  /** Keeps the table filter and the modal picker on the same, current group list. */
+  function syncGroupSelectors() {
+    const options = catalogGroups
+      .map((group) => `<option value="${group.id}">${escapeHtml(group.name)}${group.isActive ? '' : ' (hidden)'}</option>`)
+      .join('');
+
+    const filter = $('#productGroupFilter');
+    if (filter) {
+      const selected = filter.value;
+      filter.innerHTML = `<option value="">All groups</option>${options}`;
+      filter.value = selected;
+      if (filter.value !== selected) filter.value = '';
+    }
+
+    const picker = $('#productGroup');
+    if (picker) {
+      const current = picker.value;
+      picker.innerHTML = options;
+      if (current) picker.value = current;
+    }
+  }
+
+  async function loadCatalogGroupsForProducts() {
+    if (catalogGroups.length) return;
+    const response = await adminFetch('/api/admin/catalog/groups');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Collections could not be loaded.');
+    catalogGroups = data.groups || [];
+  }
+
+  async function loadCatalogProducts() {
+    const tbody = $('#catalogProductsBody');
+    const note = $('#productSourceNote');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading product designs...</td></tr>';
+
+    try {
+      await loadCatalogGroupsForProducts();
+      syncGroupSelectors();
+
+      const groupId = $('#productGroupFilter') ? $('#productGroupFilter').value : '';
+      const url = groupId
+        ? `/api/admin/catalog/products?groupId=${encodeURIComponent(groupId)}`
+        : '/api/admin/catalog/products';
+      const response = await adminFetch(url);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Product designs could not be loaded.');
+
+      catalogProducts = data.products || [];
+      renderCatalogProducts();
+      const live = catalogProducts.filter((product) => product.isActive).length;
+      note.textContent = `${catalogProducts.length} design${catalogProducts.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
+    } catch (error) {
+      catalogProducts = [];
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = 'Product designs need the MySQL connection. The storefront keeps using the bundled catalogue.';
+    }
+  }
+
+  function renderCatalogProducts() {
+    const tbody = $('#catalogProductsBody');
+    if (!catalogProducts.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No designs here yet. Add the first product design.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = catalogProducts.map((product, index) => {
+      const thumb = safeImageUrl(product.imageUrl);
+      return `
+      <tr data-product-row="${product.id}">
+        <td class="catalog-order-cell">
+          <span class="catalog-order-index">${String(index + 1).padStart(2, '0')}</span>
+          <span class="catalog-order-controls">
+            <button type="button" class="icon-button catalog-move" data-move-product="-1" data-product-id="${product.id}" aria-label="Move ${escapeHtml(product.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button type="button" class="icon-button catalog-move" data-move-product="1" data-product-id="${product.id}" aria-label="Move ${escapeHtml(product.name)} down" ${index === catalogProducts.length - 1 ? 'disabled' : ''}>↓</button>
+          </span>
+        </td>
+        <td class="customer-cell">
+          <span class="catalog-group-name">
+            ${thumb
+              ? `<span class="catalog-thumb" style="background-image:url('${thumb}')" aria-hidden="true"></span>`
+              : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
+            <strong>${escapeHtml(product.name)}</strong>
+          </span>
+          <span><code class="catalog-slug">${escapeHtml(product.slug)}</code></span>
+        </td>
+        <td>${escapeHtml(product.groupName || '—')}</td>
+        <td><code class="catalog-slug">${escapeHtml(product.templateKey || '—')}</code></td>
+        <td class="amount-cell">${money(product.price)}</td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-product="${product.id}" ${product.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(product.name)} on the storefront" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${product.isActive ? 'Live' : 'Hidden'}</span>
+          </label>
+        </td>
+        <td>
+          <button type="button" class="button button-outline button-small" data-edit-product="${product.id}">Edit</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-edit-product]').forEach((button) => {
+      button.addEventListener('click', () => openProductModal(Number(button.dataset.editProduct)));
+    });
+    tbody.querySelectorAll('[data-toggle-product]').forEach((input) => {
+      input.addEventListener('change', () => toggleProduct(Number(input.dataset.toggleProduct), input.checked));
+    });
+    tbody.querySelectorAll('[data-move-product]').forEach((button) => {
+      button.addEventListener('click', () => moveProduct(Number(button.dataset.productId), Number(button.dataset.moveProduct)));
+    });
+  }
+
+  async function toggleProduct(id, isActive) {
+    try {
+      const response = await adminFetch(`/api/admin/catalog/products/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Design could not be updated.');
+      await loadCatalogProducts();
+      showToast(isActive ? 'Design published to the storefront.' : 'Design hidden from the storefront.');
+    } catch (error) {
+      showToast(`Catalog error: ${error.message}`);
+      await loadCatalogProducts();
+    }
+  }
+
+  async function moveProduct(id, direction) {
+    const index = catalogProducts.findIndex((product) => product.id === id);
+    if (index < 0) return;
+    const current = catalogProducts[index];
+    const neighbour = catalogProducts[index + direction];
+    // Sort order is per collection, so never swap across a group boundary.
+    if (!neighbour || neighbour.groupId !== current.groupId) return;
+
+    const updates = current.sortOrder === neighbour.sortOrder
+      ? [[current.id, neighbour.sortOrder + (direction > 0 ? 1 : -1)]]
+      : [[current.id, neighbour.sortOrder], [neighbour.id, current.sortOrder]];
+
+    try {
+      for (const [productId, sortOrder] of updates) {
+        await adminFetch(`/api/admin/catalog/products/${productId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ sortOrder }),
+        });
+      }
+      await loadCatalogProducts();
+    } catch (error) {
+      showToast(`Reorder error: ${error.message}`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Product design modal
+  // ---------------------------------------------------------------------------
+  function renderProductImagePreview(source) {
+    const preview = $('#productImagePreview');
+    const thumb = $('#productImageThumb');
+    const value = String(source || '');
+    const safe = value.startsWith('data:image/') ? value : safeImageUrl(value);
+
+    if (safe) {
+      thumb.src = safe;
+      preview.hidden = false;
+    } else {
+      thumb.removeAttribute('src');
+      preview.hidden = true;
+    }
+  }
+
+  function openProductModal(productId) {
+    const product = productId ? catalogProducts.find((row) => row.id === productId) : null;
+    if (!catalogGroups.length) {
+      showToast('Load the collections first.');
+      return;
+    }
+
+    fillTemplateSelect();
+    syncGroupSelectors();
+
+    $('#productFormError').hidden = true;
+    $('#productForm').reset();
+
+    $('#productFormId').value = product ? String(product.id) : '';
+    $('#productName').value = product ? product.name : '';
+    $('#productSlug').value = product ? product.key : '';
+    $('#productGroup').value = String(product ? product.groupId : ($('#productGroupFilter').value || catalogGroups[0].id));
+    $('#productTemplate').value = product ? product.templateKey : (templateKeys[0] || 'acrylic-keychain');
+    $('#productBasePrice').value = product ? String(product.price) : '';
+    $('#productDescription').value = product ? product.description : '';
+    $('#productSortOrder').value = String(product ? product.sortOrder : 0);
+    $('#productIsActive').checked = product ? Boolean(product.isActive) : true;
+
+    $('#productModalEyebrow').textContent = product ? 'EDIT DESIGN' : 'NEW DESIGN';
+    $('#productModalTitle').textContent = product ? product.name : 'Add product design';
+    $('#productFormSubmit').textContent = product ? 'Save changes' : 'Create design';
+
+    pendingProductImage = null;
+    pendingProductImageRemoval = false;
+    $('#productImageInput').value = '';
+    $('#productImageNote').textContent = '';
+    $('#productImageNote').hidden = true;
+    renderProductImagePreview(product ? product.imageUrl : '');
+
+    lastFocusedElement = document.activeElement;
+    $('#productModalBackdrop').hidden = false;
+    $('#productModal').focus();
+    $('#productName').focus();
+  }
+
+  function closeProductModal() {
+    $('#productModalBackdrop').hidden = true;
+    pendingProductImage = null;
+    pendingProductImageRemoval = false;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+
+  $('#productImageInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    const note = $('#productImageNote');
+    if (!file) return;
+
+    note.hidden = false;
+    note.textContent = 'Preparing image…';
+
+    try {
+      pendingProductImage = await readImageFile(file);
+      pendingProductImageRemoval = false;
+      renderProductImagePreview(pendingProductImage);
+      const kilobytes = Math.round((pendingProductImage.length * 0.75) / 1024);
+      note.textContent = `Ready to upload · about ${kilobytes} KB after resizing.`;
+    } catch (error) {
+      pendingProductImage = null;
+      note.textContent = error.message;
+      $('#productImageInput').value = '';
+    }
+  });
+
+  $('#productImageRemove').addEventListener('click', () => {
+    pendingProductImage = null;
+    pendingProductImageRemoval = true;
+    $('#productImageInput').value = '';
+    renderProductImagePreview('');
+    const note = $('#productImageNote');
+    note.textContent = 'The image will be removed when you save.';
+    note.hidden = false;
+  });
+
+  $('#addProductBtn').addEventListener('click', () => openProductModal(null));
+  $('#refreshProductsBtn').addEventListener('click', () => loadCatalogProducts());
+  $('#productModalClose').addEventListener('click', closeProductModal);
+  $('#productFormCancel').addEventListener('click', closeProductModal);
+  $('#productModalBackdrop').addEventListener('click', (event) => {
+    if (event.target === $('#productModalBackdrop')) closeProductModal();
+  });
+  $('#productGroupFilter').addEventListener('change', () => loadCatalogProducts());
+
+  $('#productForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#productFormId').value;
+    const errorEl = $('#productFormError');
+    const payload = {
+      groupId: Number($('#productGroup').value),
+      name: $('#productName').value,
+      slug: $('#productSlug').value,
+      templateKey: $('#productTemplate').value,
+      basePrice: Number($('#productBasePrice').value),
+      description: $('#productDescription').value,
+      sortOrder: Number($('#productSortOrder').value),
+      isActive: $('#productIsActive').checked,
+    };
+    if (pendingProductImage) payload.imageUrl = pendingProductImage;
+    else if (pendingProductImageRemoval) payload.imageUrl = null;
+
+    errorEl.hidden = true;
+    $('#productFormSubmit').disabled = true;
+
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/catalog/products/${id}` : '/api/admin/catalog/products',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Design could not be saved.');
+
+      closeProductModal();
+      await loadCatalogProducts();
+      showToast(id ? 'Design updated.' : 'Design created.');
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      $('#productFormSubmit').disabled = false;
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Studio pricing
+  // ---------------------------------------------------------------------------
+  async function loadPricing() {
+    const tbody = $('#pricingBody');
+    const note = $('#pricingNote');
+    tbody.innerHTML = '<tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>';
+
+    try {
+      const response = await adminFetch('/api/admin/pricing');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Pricing could not be loaded.');
+      pricingOptions = data.options || [];
+      renderPricing();
+      const live = pricingOptions.filter((option) => option.isActive).length;
+      note.textContent = `${pricingOptions.length} options · ${live} offered in the studio. Saved prices apply to new orders immediately.`;
+    } catch (error) {
+      pricingOptions = [];
+      tbody.innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = 'Pricing management needs the MySQL connection. The studio keeps using the bundled prices.';
+    }
+  }
+
+  function renderPricing() {
+    const tbody = $('#pricingBody');
+    if (!pricingOptions.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">No pricing options yet.</td></tr>';
+      return;
+    }
+
+    const groups = [
+      { key: 'addon', label: 'ADD-ONS' },
+      { key: 'clasp', label: 'CLASPS' },
+    ];
+
+    let markup = '';
+    for (const group of groups) {
+      const rows = pricingOptions.filter((option) => option.category === group.key);
+      if (!rows.length) continue;
+      markup += `<tr class="pricing-group-row"><td colspan="4">${group.label}</td></tr>`;
+      markup += rows.map((option) => `
+        <tr data-pricing-row="${escapeHtml(option.key)}">
+          <td><input type="text" class="pricing-label-input" data-pricing-label="${escapeHtml(option.key)}" value="${escapeHtml(option.label)}" maxlength="120" aria-label="Label for ${escapeHtml(option.key)}" /></td>
+          <td><code class="catalog-slug">${escapeHtml(option.key)}</code></td>
+          <td><input type="number" class="pricing-price-input" data-pricing-price="${escapeHtml(option.key)}" value="${option.price}" min="0" step="1000" inputmode="numeric" aria-label="Price for ${escapeHtml(option.key)}" /></td>
+          <td>
+            <label class="toggle-switch toggle-switch-inline">
+              <input type="checkbox" data-pricing-active="${escapeHtml(option.key)}" ${option.isActive ? 'checked' : ''} aria-label="Offer ${escapeHtml(option.key)} in the studio" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-label">${option.isActive ? 'Live' : 'Off'}</span>
+            </label>
+          </td>
+        </tr>`).join('');
+    }
+
+    tbody.innerHTML = markup || '<tr><td colspan="4" class="table-empty">No pricing options yet.</td></tr>';
+  }
+
+  async function savePricing() {
+    const button = $('#savePricingBtn');
+    const note = $('#pricingNote');
+    const updates = [];
+
+    for (const option of pricingOptions) {
+      const priceInput = $(`[data-pricing-price="${option.key}"]`);
+      const labelInput = $(`[data-pricing-label="${option.key}"]`);
+      const activeInput = $(`[data-pricing-active="${option.key}"]`);
+      if (!priceInput) continue;
+
+      const price = Number(priceInput.value);
+      if (!Number.isInteger(price) || price < 0) {
+        showToast(`Price for ${option.key} must be a whole number of at least 0.`);
+        priceInput.focus();
+        return;
+      }
+      updates.push({
+        optionKey: option.key,
+        price,
+        label: labelInput ? labelInput.value : option.label,
+        isActive: activeInput ? activeInput.checked : option.isActive,
+      });
+    }
+
+    if (!updates.length) {
+      showToast('Nothing to save.');
+      return;
+    }
+
+    button.disabled = true;
+    note.textContent = 'Saving prices…';
+    try {
+      const response = await adminFetch('/api/admin/pricing', {
+        method: 'PATCH',
+        body: JSON.stringify({ options: updates }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Pricing could not be saved.');
+      pricingOptions = data.options || [];
+      renderPricing();
+      note.textContent = 'Pricing saved. New orders use these prices.';
+      showToast('Pricing saved.');
+    } catch (error) {
+      note.textContent = error.message;
+      showToast(`Pricing error: ${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  $('#refreshPricingBtn').addEventListener('click', () => loadPricing());
+  $('#savePricingBtn').addEventListener('click', savePricing);
+
   // Keeps Tab inside an open dialog, so focus never lands on the page behind it.
   function trapFocusWithin(container, event) {
     if (!container || event.key !== 'Tab') return;
@@ -1449,10 +1900,12 @@
   // Escape closes the topmost overlay and returns focus to the control that opened it.
   document.addEventListener('keydown', (event) => {
     const groupModalOpen = !$('#groupModalBackdrop').hidden;
+    const productModalOpen = !$('#productModalBackdrop').hidden;
     const drawerOpen = !$('#detailDrawerBackdrop').hidden;
 
     if (event.key === 'Tab') {
       if (groupModalOpen) trapFocusWithin($('#groupModal'), event);
+      else if (productModalOpen) trapFocusWithin($('#productModal'), event);
       else if (drawerOpen) trapFocusWithin($('#detailDrawer'), event);
       return;
     }
@@ -1460,6 +1913,10 @@
     if (event.key !== 'Escape') return;
     if (groupModalOpen) {
       closeGroupModal();
+      return;
+    }
+    if (productModalOpen) {
+      closeProductModal();
       return;
     }
     if (drawerOpen) closeOrderDrawer();

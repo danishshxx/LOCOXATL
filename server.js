@@ -242,10 +242,11 @@ if (require.main === module) {
               process.stdout.write(`MySQL initialization note: ${err.message}\n`);
             }
             try {
-              const { seedCatalogGroups } = require('./src/server/catalog');
-              const seeded = await seedCatalogGroups();
-              if (seeded.seeded) {
-                process.stdout.write(`Catalog groups: seeded ${seeded.seeded} default collections.\n`);
+              const { seedStorefrontCatalog } = require('./src/server/catalog');
+              const seeded = await seedStorefrontCatalog();
+              const counts = [seeded.groups.seeded, seeded.products.seeded, seeded.options.seeded];
+              if (counts.some(Boolean)) {
+                process.stdout.write(`Catalog: seeded ${seeded.groups.seeded} collections, ${seeded.products.seeded} designs, ${seeded.options.seeded} prices.\n`);
               }
             } catch (err) {
               process.stdout.write(`Catalog initialization note: ${err.message}\n`);

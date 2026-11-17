@@ -62,7 +62,11 @@ require.cache[catalogPath] = {
   id: catalogPath,
   filename: catalogPath,
   loaded: true,
-  exports: { seedCatalogGroups: async () => ({ seeded: 0 }) },
+  exports: {
+    seedCatalogGroups: async () => ({ seeded: 0 }),
+    seedCatalogProducts: async () => ({ seeded: 0 }),
+    seedPricingOptions: async () => ({ seeded: 0 }),
+  },
 };
 
 const { runAdditiveMigrations } = require('../src/server/migrate');

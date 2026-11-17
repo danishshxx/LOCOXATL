@@ -1,18 +1,15 @@
-const catalog = require('../catalog.js');
 const pricing = require('../pricing.js');
 const options = require('../options.js');
 const serverCatalog = require('./catalog.js');
 
 // Order validation and server-side price calculation.
-// The browser total is never trusted: the same src/options.js price table that feeds the
-// Custom Studio is used here to recompute the amount that gets persisted.
+// The browser total is never trusted: the same pricing module that feeds the Custom Studio is
+// used here to recompute the amount that gets persisted, against the live MySQL catalogue when
+// one is available.
 
 const ALLOWED_BASES = new Set(['heart', 'star', 'bow']);
 const ALLOWED_CLASPS = new Set(options.clasps.map((clasp) => clasp.id));
 const ALLOWED_ADDONS = new Set(options.addons.map((addon) => addon.id));
-// The Custom Studio lets a customer swap the base silhouette, and the base price follows
-// the silhouette, not the page the journey started from.
-const TEMPLATE_BY_BASE = { heart: 'cloud-heart', star: 'orbit-star', bow: 'soft-ribbon' };
 const MAX_QUANTITY = 20;
 const MAX_CONFIGURATION_BYTES = 20000;
 
@@ -101,34 +98,68 @@ function sanitizeTransform(transform) {
   };
 }
 
-function quoteFor({ product, configuration, quantity }) {
-  const addonPrices = configuration.addons
-    .filter((id) => id !== 'initial')
-    .map((id) => options.getAddon(id))
-    .filter(Boolean)
-    .map((addon) => addon.price);
-  const clasp = options.getClasp(configuration.clasp);
-  const personalizationPrice = configuration.initial ? options.getAddon('initial').price : 0;
-
+function quoteFor({ product, configuration, quantity, pricingTable }) {
+  // When a live table is supplied the prices come from pricing_options; otherwise
+  // src/pricing.js falls back to src/options.js, so both paths agree on the same total.
   return pricing.calculatePrice({
     basePrice: product.price,
-    addonPrices,
-    claspPrice: clasp ? clasp.price : 0,
-    personalizationPrice,
+    addonIds: configuration.addons.filter((id) => id !== 'initial'),
+    claspId: configuration.clasp,
+    initial: configuration.initial,
+    pricing: pricingTable || undefined,
     quantity,
   });
 }
 
-function validateOrderPayload(payload = {}) {
+function catalogProducts(catalogData) {
+  return catalogData && Array.isArray(catalogData.products)
+    ? catalogData.products
+    : serverCatalog.staticProducts();
+}
+
+function catalogGroups(catalogData) {
+  return catalogData && Array.isArray(catalogData.groups)
+    ? catalogData.groups
+    : serverCatalog.staticGroups();
+}
+
+/**
+ * Validates an order and computes the authoritative total.
+ *
+ * `context.catalog` is the payload from serverCatalog.loadCatalog(). When it is omitted the
+ * bundled catalogue is used, which keeps this function synchronous for callers that only need
+ * shape validation. When the catalogue came from MySQL (`source: 'database'`) the checks are
+ * strict: the collection must be active, the design must exist inside that collection, and the
+ * prices come from the live tables instead of the client payload.
+ */
+function validateOrderPayload(payload = {}, context = {}) {
   const errors = {};
   if (!payload || typeof payload !== 'object') throw new ValidationError({ body: 'A JSON object is required.' });
+
+  const catalogData = context && context.catalog ? context.catalog : null;
+  const strict = Boolean(catalogData && catalogData.source === 'database');
+  const products = catalogProducts(catalogData);
+  const groups = catalogGroups(catalogData);
+  const pricingTable = catalogData && catalogData.options ? catalogData.options : null;
 
   const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
   const configuration = normalizeConfiguration(payload.order?.configuration || payload.configuration || {}, errors);
 
   const productSlug = cleanText(payload.order?.product?.slug || payload.productSlug, 80);
-  const product = productSlug ? catalog.getProduct(productSlug) : null;
-  if (!product) errors.product_slug = 'Unknown product.';
+  const artistSlug = cleanText(payload.order?.artist?.slug, 60);
+
+  const group = artistSlug ? groups.find((item) => item.slug === artistSlug) || null : null;
+  const product = productSlug ? products.find((item) => item.slug === productSlug) || null : null;
+
+  if (!product) {
+    errors.product_slug = strict ? 'That design is not available right now.' : 'Unknown product.';
+  }
+  if (strict && artistSlug && !group) {
+    errors.artist_slug = 'That collection is not available right now.';
+  }
+  if (product && group && product.groupSlug && product.groupSlug !== group.slug) {
+    errors.product_slug = 'That design does not belong to the selected collection.';
+  }
 
   const quantity = Number(payload.order?.quantity ?? payload.quantity ?? 1);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
@@ -142,24 +173,29 @@ function validateOrderPayload(payload = {}) {
 
   if (Object.keys(errors).length) throw new ValidationError(errors);
 
-  const artistSlug = cleanText(payload.order?.artist?.slug, 60);
-  const artist = artistSlug ? catalog.getArtist(artistSlug) : null;
-  const templateSlug = TEMPLATE_BY_BASE[configuration.base];
-  const pricedProduct = (artist && templateSlug && catalog.getProduct(`${artist.slug}-${templateSlug}`)) || product;
-  const quote = quoteFor({ product: pricedProduct, configuration, quantity });
+  // Swapping the silhouette in the studio moves the price to that design, not the page the
+  // journey started from. Designs are matched inside the same collection.
+  const baseSwap = configuration.base && group
+    ? products.find((item) => item.groupSlug === group.slug && item.baseId === configuration.base) || null
+    : null;
+  const pricedProduct = baseSwap || product;
+
+  const quote = quoteFor({ product: pricedProduct, configuration, quantity, pricingTable });
   const submittedTotal = Number(payload.order?.total);
+  const artistName = group ? group.name : (pricedProduct.groupName || null);
 
   return {
     customer,
     product: pricedProduct,
-    artist: artist ? { slug: artist.slug, name: artist.name, fandom: artist.fandom } : null,
+    artist: group ? { slug: group.slug, name: group.name, fandom: group.tagline || group.name.toUpperCase() } : null,
     configuration,
     configurationJson,
     quantity,
     quote,
     submittedTotal: Number.isFinite(submittedTotal) ? submittedTotal : null,
     priceAdjusted: Number.isFinite(submittedTotal) && submittedTotal !== quote.total,
-    productName: artist ? `${pricedProduct.name} — ${artist.name}` : pricedProduct.name,
+    productName: artistName ? `${pricedProduct.name} — ${artistName}` : pricedProduct.name,
+    source: strict ? 'database' : 'bundled',
   };
 }
 
