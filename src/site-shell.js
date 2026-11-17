@@ -21,10 +21,53 @@
       <footer class="site-footer">
         <a class="brand brand-footer" href="index.html" aria-label="LOCOXATL homepage"><img src="assets/brand/locoxatl-wordmark-black.png" alt="LOCOXATL" /></a>
         <p>Personal objects, made by you.</p>
-        <div class="footer-links"><a href="index.html#our-story">Our story</a><a href="shop.html">Collections</a><a href="shop.html">Buy Now</a><a href="mailto:hello@locoxatl.com">Contact</a></div>
+        <nav class="footer-links" aria-label="Footer navigation"><a href="index.html#our-story">Our story</a><a href="shop.html">Collections</a><a href="shop.html">Buy Now</a></nav>
+        <div class="footer-contact-links" aria-label="Contact and social links">
+          <a class="footer-contact-link" id="whatsappContactLink" href="#" target="_blank" rel="noopener noreferrer" hidden><span>WhatsApp</span><strong id="whatsappContactNumber"></strong><span aria-hidden="true">↗</span></a>
+          <a class="footer-contact-link" id="instagramProfileLink" href="#" target="_blank" rel="noopener noreferrer" hidden><svg class="footer-instagram-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r=".75"></circle></svg><span>Instagram</span><span aria-hidden="true">↗</span></a>
+          <span id="footerContactStatus" class="footer-link-status" role="status" hidden></span>
+        </div>
         <div class="footer-bottom"><span>© 2026 LOCOXATL. ALL RIGHTS RESERVED.</span><span>CUSTOM. CLEAN. BOLD.</span></div>
       </footer>`;
   }
+
+  window.locoxatlPublicConfig = fetch('/api/public-config')
+    .then((response) => {
+      if (!response.ok) throw new Error(`Public configuration request failed (${response.status}).`);
+      return response.json();
+    });
+  window.locoxatlPublicConfig.then((config) => {
+    const whatsappLink = document.getElementById('whatsappContactLink');
+    const whatsappNumber = document.getElementById('whatsappContactNumber');
+    const instagramLink = document.getElementById('instagramProfileLink');
+    const status = document.getElementById('footerContactStatus');
+    const missing = [];
+
+    if (whatsappLink && whatsappNumber && /^[1-9]\d{7,14}$/.test(config.whatsappNumber || '')) {
+      whatsappLink.href = `https://wa.me/${config.whatsappNumber}`;
+      whatsappNumber.textContent = `+${config.whatsappNumber}`;
+      whatsappLink.hidden = false;
+    } else {
+      missing.push('WhatsApp contact is not configured.');
+    }
+    if (instagramLink && config.instagramUrl) {
+      instagramLink.href = config.instagramUrl;
+      instagramLink.hidden = false;
+    } else {
+      missing.push('Instagram profile is not configured.');
+    }
+
+    if (status && missing.length) {
+      status.textContent = missing.join(' ');
+      status.hidden = false;
+    }
+  }).catch(() => {
+    const status = document.getElementById('footerContactStatus');
+    if (status) {
+      status.textContent = 'Contact links could not be loaded.';
+      status.hidden = false;
+    }
+  });
 
   const menuButton = document.getElementById('mobileMenuButton');
   const mobileNav = document.getElementById('mobileNav');
