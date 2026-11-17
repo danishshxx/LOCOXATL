@@ -27,6 +27,15 @@ test('admin dashboard markup and client scripts are present', () => {
   assert.match(html, /id="ordersTableBody"/, 'must contain orders table');
   assert.match(html, /id="customerWhatsAppBtn"/, 'must contain direct WhatsApp action button');
   assert.match(html, /importmap/, 'must declare Three.js import map');
+  assert.match(html, /id="adminViewTabs"/, 'must expose the dashboard view tabs');
+  assert.match(html, /id="catalogGroupsBody"/, 'must contain the catalog group table');
+  assert.match(html, /id="groupForm"/, 'must contain the catalog group editor');
+  assert.match(html, /id="groupModal"/, 'the group editor must be a dialog');
+
+  const script = fs.readFileSync(adminJsPath, 'utf8');
+  assert.match(script, /setActiveView/, 'admin.js must switch dashboard views');
+  assert.match(script, /\/api\/admin\/catalog\/groups/, 'admin.js must call the catalog API');
+  assert.match(script, /document\.hidden/, 'the cashbook poll must pause in a background tab');
 });
 
 test('additive migration SQL file is safe and preserves existing customer schema', () => {

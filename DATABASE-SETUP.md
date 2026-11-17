@@ -1,8 +1,9 @@
 # LOCOXATL — MySQL Setup Guide
 
 The storefront runs without a database. Orders are only persisted when MySQL is
-configured; when it is not, the checkout still completes and the order stays in browser
-`localStorage` with `persistence.mode = "local-demo"`.
+configured; when it is not, checkout reports the failure inline and keeps the design and the
+typed details in browser `localStorage` so the customer can retry. No order number is ever
+generated client side.
 
 ## 1. Requirements
 
@@ -31,6 +32,20 @@ mysql -u root -p locoxatl < database/schema.sql
 `database/schema.sql` creates the application tables with `CREATE TABLE IF NOT EXISTS`;
 it never creates or switches databases. The migration command also applies this base
 schema to the database selected by `DB_NAME` before applying additive changes.
+
+The additive migrations are append-only and idempotent. Apply them **in order** on an
+existing database, or just run `npm run db:migrate`, which applies all of them:
+
+| File | Adds |
+|---|---|
+| `database/migrations/001_admin_dashboard.sql` | Admin columns on `orders`, `order_status_history`, `admin_users`, `admin_sessions` |
+| `database/migrations/002_cashbook.sql` | `cashbook_categories`, `cashbook_entries` |
+| `database/migrations/003_catalog_groups.sql` | `catalog_groups`, cashbook reversal pointer, `Order Refunds` category, drops the obsolete one-income-per-order key |
+| `database/migrations/004_catalog_group_images.sql` | `catalog_groups.image_url` |
+
+`003` supersedes part of `002`'s original definition: it drops
+`uq_cashbook_order_entry_type` so a refunded order can be verified again. Applying `002`
+alone is not enough — always finish with `003` and `004`.
 
 The base schema includes:
 
@@ -187,10 +202,12 @@ SELECT JSON_EXTRACT(configuration_json, '$.configuration.initial') FROM locoxatl
 | Method | Path | Behaviour |
 |---|---|---|
 | `GET` | `/api/health` | `200` when MySQL answers, `503` when not configured or unreachable |
+| `GET` | `/api/public-config` | Validated WhatsApp/Instagram contact links for the storefront footer |
+| `GET` | `/api/catalog` | Active catalog groups ordered by `sort_order`, plus the three product templates per group. Falls back to the bundled catalogue when MySQL is unavailable |
 | `POST` | `/api/orders` | Validates, recomputes the price, writes order + item + configuration in one transaction. `201` on success, `400` on validation errors, `503` when the database is unavailable |
 | `GET` | `/api/orders/:orderNumber` | Returns status, total, and product lines only; never returns customer PII or customizer data |
 | `PATCH` | `/api/orders/:orderNumber/status` | Customer-side status update `waiting_for_payment → payment_confirmation_sent`; `409` for any other transition |
-| `POST` | `/api/admin/auth/login` | Authenticate admin; sets an HttpOnly session cookie and returns user/expiry only |
+| `POST` | `/api/admin/auth/login` | Authenticate admin; sets an HttpOnly session cookie and returns user/expiry only. Five failures per username/IP inside 15 minutes return `429` with `Retry-After` |
 | `GET` | `/api/admin/auth/verify` | Verify admin authentication status |
 | `GET` | `/api/admin/metrics` | Operations overview metrics (order counts by status, verified revenue) |
 | `GET` | `/api/admin/orders` | Paginated order list with `status` filter and `q` search query |
@@ -206,6 +223,11 @@ SELECT JSON_EXTRACT(configuration_json, '$.configuration.initial') FROM locoxatl
 | `GET` | `/api/admin/cashbook/entries/:id/history` | Read the entry's immutable correction history |
 | `GET` | `/api/admin/reports/summary` | Date-filtered order and cashbook totals |
 | `GET` | `/api/admin/reports/export.xlsx` | Authenticated Excel workbook (`scope=summary|orders|income|expenses|cashbook`) |
+| `GET` | `/api/admin/catalog/groups` | Every catalog group, including hidden ones, ordered by `sort_order` |
+| `POST` | `/api/admin/catalog/groups` | Create a group; the slug is derived from the name when omitted, duplicates return `409` |
+| `PATCH` | `/api/admin/catalog/groups/:id` | Update `name`, `slug`, `tagline`, `description`, `sortOrder`, or `isActive` |
+| `POST` | `/api/admin/catalog/groups/:id/image` | Upload the card image (base64 data URL; PNG/JPEG/WebP, 3 MB max after the browser downscales it) |
+| `DELETE` | `/api/admin/catalog/groups/:id/image` | Remove the card image and delete the stored file |
 
 Notes:
 
@@ -216,6 +238,10 @@ Notes:
 - Order creation uses `connection.beginTransaction()` / `commit()` / `rollback()`.
   The connection is always released.
 - Order numbers look like `LX-M4Z1QA-9F3C21` and are retried on duplicate key errors.
+- Verifying payment (`→ paid`) books one income entry from any unpaid status, keyed
+  `order-paid:<orderId>`; cancelling a verified order appends a refund in the
+  `Order Refunds` category that points back at that income through `reverses_entry_id`.
+  Re-verifying after a cancellation creates the next cycle (`order-paid:<orderId>:1`).
 - Public order lookups intentionally omit customer contact/address fields and configuration
   snapshots. Full private order details are available only in authenticated admin routes.
 
@@ -228,7 +254,7 @@ Notes:
 | `ER_ACCESS_DENIED_ERROR` | wrong user/password or host grant | recreate the user with `'locoxatl'@'localhost'` |
 | `ER_NO_SUCH_TABLE` | schema not imported | run `npm run db:migrate` against the selected database |
 | `ER_BAD_DB_ERROR` | selected database missing | select the existing database; schema setup does not create one |
-| Checkout stays in `local-demo` mode | API returned 503 | check `/api/health`, then re-submit the order |
+| Checkout shows "We could not save your order" | API returned `503` (MySQL not configured or unreachable) | check `/api/health`, fix the connection, then re-submit — the design and typed details are preserved |
 
 ## 8. Safe Additive Migration for Admin
 

@@ -1,9 +1,10 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
+  const whatsapp = window.LocoxatlWhatsApp;
   const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value).replace('IDR', 'Rp').replace(/\s/g, '');
   let order;
   try { order = JSON.parse(localStorage.getItem('locoxatl-pending-order') || 'null'); } catch { order = null; }
-  if (!order || !order.orderNumber) {
+  if (!order || !order.orderNumber || !whatsapp) {
     $('#paymentOrderNumber').textContent = 'NO ACTIVE ORDER';
     $('#paymentTotal').textContent = '—';
     $('#finishPaymentDemo').disabled = true;
@@ -15,19 +16,35 @@
   $('#paymentTotal').textContent = money(order.total || 0);
   $('#paymentCustomerName').textContent = order.customer?.name || 'Customer';
   $('#paymentCustomerAddress').textContent = order.customer?.address || 'Address not provided';
-  const config = order.configuration || {};
-  const configuration = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name].filter(Boolean).join(', ');
-  const message = [
-    'Halo LOCOXATL, saya ingin konfirmasi pembayaran pesanan.',
-    `Order: ${order.orderNumber}`,
-    `Nama: ${order.customer?.name || '-'}`,
-    `Koleksi: ${order.artist?.name || '-'}`,
-    `Produk: ${order.product?.name || '-'}`,
-    `Custom: ${configuration || '-'}`,
-    `Subtotal produk: ${money(order.total || 0)}`,
-    'Saya akan mengirimkan bukti pembayaran untuk diverifikasi.',
-  ].join('\n');
-  $('#whatsappConfirm').href = `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+  // Customer verification message — shared template with the success page (src/whatsapp.js).
+  const message = whatsapp.buildVerificationMessage(order.orderNumber);
+  const whatsappLink = $('#whatsappConfirm');
+  whatsappLink.href = whatsapp.buildChatUrl('', message);
+
+  // Prefer the configured business number so the confirmation lands in the right chat. The
+  // generic share link above stays as the fallback when the number is not configured.
+  const whatsappStatus = $('#paymentWhatsAppStatus');
+  const publicConfig = window.locoxatlPublicConfig || fetch('/api/public-config').then((response) => {
+    if (!response.ok) throw new Error(`Public configuration request failed (${response.status}).`);
+    return response.json();
+  });
+
+  publicConfig.then(({ whatsappNumber }) => {
+    if (!whatsappNumber || !/^[1-9]\d{7,14}$/.test(whatsappNumber)) {
+      if (whatsappStatus) {
+        whatsappStatus.textContent = 'WhatsApp is not configured yet. The button will ask you to choose a chat — you can also copy your order reference.';
+        whatsappStatus.hidden = false;
+      }
+      return;
+    }
+    whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
+  }).catch(() => {
+    if (whatsappStatus) {
+      whatsappStatus.textContent = 'WhatsApp could not be configured. Use the button to choose a chat manually.';
+      whatsappStatus.hidden = false;
+    }
+  });
 
   $('#finishPaymentDemo').addEventListener('click', async () => {
     order.status = 'payment_confirmation_sent';

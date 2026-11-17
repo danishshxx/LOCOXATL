@@ -7,6 +7,88 @@ const SCRYPT_BLOCK_SIZE = 8;
 const SCRYPT_PARALLELIZATION = 1;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
+// Online brute-force protection: five failures per username and per client address inside a
+// rolling fifteen-minute window. State is intentionally in-process; a restart clears it.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
+const MAX_TRACKED_BUCKETS = 2000;
+const loginFailureBuckets = new Map();
+
+// A throwaway hash used to keep "unknown username" responses as slow as a real password
+// check, so the endpoint cannot be used to enumerate admin accounts by timing.
+const DUMMY_PASSWORD = crypto.randomBytes(32).toString('hex');
+let dummyHashPromise = null;
+
+function dummyPasswordHash() {
+  if (!dummyHashPromise) dummyHashPromise = hashPassword(DUMMY_PASSWORD);
+  return dummyHashPromise;
+}
+
+function clientAddress(request) {
+  const forwarded = String((request && request.headers && request.headers['x-forwarded-for']) || '')
+    .split(',')[0]
+    .trim();
+  if (forwarded) return forwarded;
+  return (request && request.socket && request.socket.remoteAddress) || 'unknown';
+}
+
+function loginRateLimitKeys(request, username) {
+  const user = String(username == null ? '' : username).trim().toLowerCase().slice(0, 64);
+  return [`user:${user || '-'}`, `ip:${clientAddress(request)}`];
+}
+
+function readBucket(key, now) {
+  const bucket = loginFailureBuckets.get(key);
+  if (!bucket) return null;
+  if (now - bucket.startedAt >= LOGIN_WINDOW_MS) {
+    loginFailureBuckets.delete(key);
+    return null;
+  }
+  return bucket;
+}
+
+function pruneLoginBuckets(now) {
+  if (loginFailureBuckets.size <= MAX_TRACKED_BUCKETS) return;
+  for (const [key, bucket] of loginFailureBuckets) {
+    if (now - bucket.startedAt >= LOGIN_WINDOW_MS) loginFailureBuckets.delete(key);
+  }
+}
+
+function checkLoginRateLimit(request, username) {
+  const now = Date.now();
+  let retryAfter = 0;
+
+  for (const key of loginRateLimitKeys(request, username)) {
+    const bucket = readBucket(key, now);
+    if (!bucket || bucket.failures < LOGIN_MAX_FAILURES) continue;
+    retryAfter = Math.max(retryAfter, Math.ceil((bucket.startedAt + LOGIN_WINDOW_MS - now) / 1000));
+  }
+
+  return { blocked: retryAfter > 0, retryAfter };
+}
+
+function recordLoginFailure(request, username) {
+  const now = Date.now();
+  pruneLoginBuckets(now);
+
+  for (const key of loginRateLimitKeys(request, username)) {
+    const bucket = readBucket(key, now);
+    if (bucket) {
+      bucket.failures += 1;
+    } else {
+      loginFailureBuckets.set(key, { failures: 1, startedAt: now });
+    }
+  }
+}
+
+function clearLoginFailures(request, username) {
+  for (const key of loginRateLimitKeys(request, username)) loginFailureBuckets.delete(key);
+}
+
+function resetLoginRateLimit() {
+  loginFailureBuckets.clear();
+}
+
 function hashPassword(password) {
   return new Promise((resolve, reject) => {
     if (!password || typeof password !== 'string') {
@@ -100,7 +182,12 @@ async function authenticateAdmin(username, password) {
     'SELECT id, username, password_hash FROM admin_users WHERE username = ? LIMIT 1',
     [user],
   );
-  if (!rows.length) return null;
+  if (!rows.length) {
+    // Spend the same scrypt work as a real verification so response time does not reveal
+    // whether the username exists.
+    await verifyPassword(pass, await dummyPasswordHash());
+    return null;
+  }
 
   const isValid = await verifyPassword(pass, rows[0].password_hash);
   if (!isValid) return null;
@@ -175,5 +262,11 @@ module.exports = {
   validateAdminSession,
   destroyAdminSession,
   extractAdminToken,
+  checkLoginRateLimit,
+  recordLoginFailure,
+  clearLoginFailures,
+  resetLoginRateLimit,
+  LOGIN_MAX_FAILURES,
+  LOGIN_WINDOW_MS,
   SESSION_TTL_SECONDS,
 };

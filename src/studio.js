@@ -21,12 +21,33 @@
   const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value).replace('IDR', 'Rp').replace(/\s/g, '');
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
-  $('#studioArtistName').textContent = `${artist.name.toUpperCase()} / ${artist.fandom}`;
-  $('#studioProductName').textContent = product.name.toUpperCase();
-  $('#studioIntro').textContent = `Personalize ${product.name} from the ${artist.name} collection. Choose your details before checkout.`;
-  $('#studioArtistLink').textContent = artist.name;
-  $('#studioArtistLink').href = `artist.html?artist=${encodeURIComponent(artist.slug)}`;
-  document.title = `${product.name} Custom Studio — LOCOXATL`;
+  function applyGroupLabels(artistView, productView) {
+    $('#studioArtistName').textContent = `${artistView.name.toUpperCase()} / ${artistView.fandom}`;
+    $('#studioProductName').textContent = productView.name.toUpperCase();
+    $('#studioIntro').textContent = `Personalize ${productView.name} from the ${artistView.name} collection. Choose your details before checkout.`;
+    $('#studioArtistLink').textContent = artistView.name;
+    $('#studioArtistLink').href = `artist.html?artist=${encodeURIComponent(artistView.slug)}`;
+    document.title = `${productView.name} Custom Studio — LOCOXATL`;
+  }
+
+  applyGroupLabels(artist, product);
+
+  // Hydrate the headers from the curated catalogue. Slugs and prices are shared with the
+  // bundled catalogue, so only the visible labels change when an admin renames a collection.
+  const catalogReady = window.locoxatlCatalog;
+  if (catalogReady && typeof catalogReady.then === 'function') {
+    catalogReady.then((payload) => {
+      if (!payload || !Array.isArray(payload.groups)) return;
+      const index = payload.groups.findIndex((group) => group.slug === artist.slug);
+      if (index < 0) {
+        if (payload.source === 'database') window.location.replace('shop.html');
+        return;
+      }
+      const group = payload.groups[index];
+      const liveProduct = (payload.products || []).find((item) => item.slug === product.slug) || product;
+      applyGroupLabels(catalog.artistFromGroup(group, index), liveProduct);
+    }).catch(() => { /* keep the bundled labels */ });
+  }
 
   const baseNames = { heart: 'Cloud Heart', star: 'Orbit Star', bow: 'Soft Ribbon' };
   const state = {

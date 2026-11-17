@@ -18,6 +18,9 @@ function resetScript(responses = []) {
 
 function handleStatement(sql, params) {
   calls.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+  // The catalogue preflight reads catalog_groups; the scripted responses below describe the
+  // order transaction itself.
+  if (/FROM catalog_groups/i.test(sql)) return [[]];
   const next = scripted.shift();
   if (next instanceof Error) throw next;
   if (next) return next;
@@ -81,7 +84,9 @@ const payload = () => ({
   },
 });
 
-const statements = () => calls.map((call) => call.sql);
+const statements = () => calls
+  .filter((call) => !/catalog_groups/i.test(call.sql))
+  .map((call) => call.sql);
 
 test('an order is written as order + item + configuration inside one transaction', async () => {
   resetScript();

@@ -29,6 +29,38 @@ const MIME_TYPES = {
   '.webm': 'video/webm',
 };
 
+const PUBLIC_PAGES = new Set([
+  '/index.html',
+  '/shop.html',
+  '/artist.html',
+  '/studio.html',
+  '/checkout.html',
+  '/payment.html',
+  '/order-success.html',
+  '/admin.html',
+]);
+const PUBLIC_STYLESHEETS = new Set(['/styles.css']);
+const CLIENT_SCRIPT_NAME = /^[A-Za-z0-9_-]+\.js$/;
+const THREE_MODULE_NAME = /^[A-Za-z0-9_-]+\.mjs$/;
+
+/**
+ * Static files are served from an explicit allowlist rather than the project root. The API
+ * source, SQL migrations, tests, tooling, package metadata and every dotfile stay private.
+ */
+function isPublicAssetPath(pathname) {
+  if (PUBLIC_PAGES.has(pathname) || PUBLIC_STYLESHEETS.has(pathname)) return true;
+
+  const segments = pathname.split('/').filter(Boolean);
+  if (!segments.length) return false;
+  if (segments.some((segment) => segment.startsWith('.'))) return false;
+
+  if (segments[0] === 'assets') return segments.length > 1;
+  if (segments[0] !== 'src') return false;
+  if (segments.length === 2) return CLIENT_SCRIPT_NAME.test(segments[1]);
+  if (segments.length === 3 && segments[1] === 'three') return THREE_MODULE_NAME.test(segments[2]);
+  return false;
+}
+
 function createAppServer(root = __dirname) {
   const projectRoot = path.resolve(root);
 
@@ -56,7 +88,6 @@ function createAppServer(root = __dirname) {
       response.end('Page or asset not found');
       return;
     }
-
     if (pathname.startsWith('/api/')) {
       handleApiRequest(request, response, url).then((handled) => {
         if (!handled && !response.writableEnded) sendJson(response, 404, { error: 'not_found' });
@@ -76,6 +107,13 @@ function createAppServer(root = __dirname) {
     if (requested === '/admin' || requested === '/admin/') {
       requested = '/admin.html';
     }
+
+    if (!isPublicAssetPath(requested)) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Page or asset not found');
+      return;
+    }
+
     const filePath = path.resolve(projectRoot, `.${requested}`);
     if (filePath !== projectRoot && !filePath.startsWith(projectRoot + path.sep)) {
       response.writeHead(403);
@@ -203,6 +241,15 @@ if (require.main === module) {
             } catch (err) {
               process.stdout.write(`MySQL initialization note: ${err.message}\n`);
             }
+            try {
+              const { seedCatalogGroups } = require('./src/server/catalog');
+              const seeded = await seedCatalogGroups();
+              if (seeded.seeded) {
+                process.stdout.write(`Catalog groups: seeded ${seeded.seeded} default collections.\n`);
+              }
+            } catch (err) {
+              process.stdout.write(`Catalog initialization note: ${err.message}\n`);
+            }
           })
           .catch((error) => process.stdout.write(`MySQL orders API: connection failed (${error.message}).\n`));
         process.stdout.write('MySQL migrations: not run automatically. Use npm run db:migrate after review.\n');
@@ -215,4 +262,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { createAppServer, listenWithFallback };
+module.exports = { createAppServer, listenWithFallback, isPublicAssetPath };

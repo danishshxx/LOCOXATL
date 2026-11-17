@@ -22,6 +22,7 @@
         <a class="brand brand-footer" href="index.html" aria-label="LOCOXATL homepage"><img src="assets/brand/locoxatl-wordmark-black.png" alt="LOCOXATL" /></a>
         <p>Personal objects, made by you.</p>
         <nav class="footer-links" aria-label="Footer navigation"><a href="index.html#our-story">Our story</a><a href="shop.html">Collections</a><a href="shop.html">Buy Now</a></nav>
+        <nav class="footer-collections" id="footerCollections" aria-label="Shop by collection" hidden></nav>
         <div class="footer-contact-links" aria-label="Contact and social links">
           <a class="footer-contact-link" id="whatsappContactLink" href="#" target="_blank" rel="noopener noreferrer" hidden><span>WhatsApp</span><strong id="whatsappContactNumber"></strong><span aria-hidden="true">↗</span></a>
           <a class="footer-contact-link" id="instagramProfileLink" href="#" target="_blank" rel="noopener noreferrer" hidden><svg class="footer-instagram-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"></rect><circle cx="12" cy="12" r="4"></circle><circle cx="17.5" cy="6.5" r=".75"></circle></svg><span>Instagram</span><span aria-hidden="true">↗</span></a>
@@ -36,6 +37,24 @@
       if (!response.ok) throw new Error(`Public configuration request failed (${response.status}).`);
       return response.json();
     });
+
+  // Shared catalogue request: pages hydrate their group navigation from this promise, and
+  // src/catalog.js stays the immediate/offline fallback when it rejects.
+  window.locoxatlCatalog = fetch('/api/catalog')
+    .then((response) => {
+      if (!response.ok) throw new Error(`Catalog request failed (${response.status}).`);
+      return response.json();
+    })
+    .catch(() => null);
+
+  window.locoxatlCatalog.then((payload) => {
+    const container = document.getElementById('footerCollections');
+    if (!container || !payload || !Array.isArray(payload.groups) || !payload.groups.length) return;
+    container.innerHTML = payload.groups.map((group) =>
+      `<a href="artist.html?artist=${encodeURIComponent(group.slug)}">${String(group.name).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])}</a>`
+    ).join('');
+    container.hidden = false;
+  });
   window.locoxatlPublicConfig.then((config) => {
     const whatsappLink = document.getElementById('whatsappContactLink');
     const whatsappNumber = document.getElementById('whatsappContactNumber');

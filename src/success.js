@@ -1,27 +1,16 @@
 (() => {
   const $ = (id) => document.getElementById(id);
-  const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value).replace('IDR', 'Rp').replace(/\s/g, '');
+  const whatsapp = window.LocoxatlWhatsApp;
   let order;
   try { order = JSON.parse(localStorage.getItem('locoxatl-pending-order') || 'null'); } catch { order = null; }
-  if (!order) return;
+  if (!order || !whatsapp) return;
   const orderNumber = new URLSearchParams(window.location.search).get('order') || order.orderNumber || 'LX-DEMO';
   $('successOrderNumber').textContent = orderNumber;
   $('successStatus').textContent = order.status === 'payment_confirmation_sent' ? 'WAITING FOR ADMIN VERIFICATION' : 'WAITING FOR PAYMENT';
   $('successMessage').textContent = `Thank you, ${order.customer?.name || 'there'}. Your payment confirmation has been prepared. The LOCOXATL admin will verify the payment before production begins.`;
 
-  const config = order.configuration || {};
-  const customization = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name].filter(Boolean).join(', ');
-  const message = [
-    'Halo LOCOXATL, saya ingin konfirmasi pembayaran pesanan.',
-    `Order: ${orderNumber}`,
-    `Nama: ${order.customer?.name || '-'}`,
-    `Koleksi: ${order.artist?.name || '-'}`,
-    `Produk: ${order.product?.name || '-'}`,
-    `Custom: ${customization || '-'}`,
-    `Kuantitas: ${order.quantity || 1}`,
-    `Total: ${money(order.total || 0)}`,
-    'Saya akan mengirimkan bukti pembayaran untuk diverifikasi.',
-  ].join('\n');
+  // Same verification template as the payment page (src/whatsapp.js).
+  const message = whatsapp.buildVerificationMessage(orderNumber);
 
   const whatsappLink = $('successWhatsApp');
   const copyButton = $('copyOrderMessage');
@@ -39,7 +28,7 @@
       actionStatus.textContent = 'WhatsApp is unavailable. You can copy the message and contact us manually.';
       return;
     }
-    whatsappLink.href = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+    whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
     whatsappLink.removeAttribute('aria-disabled');
     whatsappLink.removeAttribute('tabindex');
   }).catch(() => {

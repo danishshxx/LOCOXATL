@@ -1,9 +1,14 @@
 const crypto = require('node:crypto');
 const { withTransaction, getPool } = require('./db');
-const { validateOrderPayload, ValidationError } = require('./validation');
-const { SYSTEM_INCOME_CATEGORY } = require('./cashbook');
+const { validateOrderPayload, assertArtistAvailable, ValidationError } = require('./validation');
+const { SYSTEM_INCOME_CATEGORY, SYSTEM_REFUND_CATEGORY } = require('./cashbook');
 
 const ORDER_STATUSES = ['waiting_for_payment', 'payment_confirmation_sent', 'paid', 'in_production', 'shipped', 'completed', 'cancelled'];
+
+// Dashboard shortcuts: "unpaid" groups every order that still needs money before production.
+const STATUS_GROUPS = {
+  unpaid: ['waiting_for_payment', 'payment_confirmation_sent'],
+};
 
 // Customers may only move their own order from "waiting for payment" to
 // "confirmation sent". Everything after that is an admin responsibility.
@@ -40,6 +45,8 @@ function isDuplicateKeyError(error) {
 
 async function createOrder(payload) {
   const order = validateOrderPayload(payload);
+  // Reject collections the shop has since hidden, before any order row is written.
+  await assertArtistAvailable(order.artist ? order.artist.slug : order.product.artistSlug);
   let lastError = null;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -174,7 +181,11 @@ async function listOrdersAdmin({ page = 1, limit = 20, status = '', search = '' 
   const params = [];
 
   const trimmedStatus = String(status || '').trim();
-  if (trimmedStatus && ORDER_STATUSES.includes(trimmedStatus)) {
+  const groupedStatuses = STATUS_GROUPS[trimmedStatus];
+  if (groupedStatuses) {
+    conditions.push(`o.order_status IN (${groupedStatuses.map(() => '?').join(', ')})`);
+    params.push(...groupedStatuses);
+  } else if (trimmedStatus && ORDER_STATUSES.includes(trimmedStatus)) {
     conditions.push('o.order_status = ?');
     params.push(trimmedStatus);
   }
@@ -390,6 +401,104 @@ async function getOrderDetailAdmin(orderNumber) {
   };
 }
 
+function cashbookUnavailableError() {
+  const error = new Error('Cashbook tables are unavailable. Run npm run db:migrate and retry.');
+  error.code = 'CASHBOOK_NOT_MIGRATED';
+  error.statusCode = 503;
+  return error;
+}
+
+async function requireSystemCategory(connection, name, entryType) {
+  const [rows] = await connection.execute(
+    `SELECT id FROM cashbook_categories
+     WHERE name = ? AND entry_type = ? AND is_active = 1
+     LIMIT 1 FOR UPDATE`,
+    [name, entryType],
+  );
+  if (!rows.length) throw cashbookUnavailableError();
+  return rows[0].id;
+}
+
+/**
+ * Returns the order's income entries plus the newest one that has not been reversed. The
+ * caller already holds a FOR UPDATE lock on the order row, so this read is serialised.
+ */
+async function findEffectiveIncome(connection, orderId) {
+  const [incomeRows] = await connection.execute(
+    `SELECT id, amount FROM cashbook_entries
+     WHERE order_id = ? AND entry_type = 'income'
+     ORDER BY id ASC`,
+    [orderId],
+  );
+  if (!incomeRows.length) return { incomeRows: [], effective: null };
+
+  const [reversalRows] = await connection.execute(
+    'SELECT reverses_entry_id FROM cashbook_entries WHERE order_id = ? AND reverses_entry_id IS NOT NULL',
+    [orderId],
+  );
+  const reversed = new Set(reversalRows.map((row) => Number(row.reverses_entry_id)));
+  const effective = incomeRows.find((row) => !reversed.has(Number(row.id))) || null;
+  return { incomeRows, effective };
+}
+
+/**
+ * Writes the verified-payment income entry. Any unpaid status is accepted, so an order
+ * verified straight from "waiting for payment" still reaches the cashbook. Re-verifying an
+ * order that already carries unreversed income is a no-op, which keeps `order-paid:<id>`
+ * idempotent; a payment that was reversed and is verified again gets the next cycle key.
+ */
+async function recordVerifiedIncome(connection, { orderId, orderNumber, amount, adminUserId }) {
+  const { incomeRows, effective } = await findEffectiveIncome(connection, orderId);
+  if (effective) return { created: false, entryId: Number(effective.id) };
+
+  const categoryId = await requireSystemCategory(connection, SYSTEM_INCOME_CATEGORY, 'income');
+  const cycle = incomeRows.length;
+  const sourceKey = cycle === 0 ? `order-paid:${orderId}` : `order-paid:${orderId}:${cycle}`;
+
+  await connection.execute(
+    `INSERT INTO cashbook_entries
+      (entry_type, amount, category_id, description, payment_method, transaction_date,
+       order_id, source_key, admin_user_id)
+     VALUES ('income', ?, ?, ?, NULL, CURRENT_DATE(), ?, ?, ?)
+     ON DUPLICATE KEY UPDATE source_key = source_key`,
+    [amount, categoryId, `Verified payment for ${orderNumber}`, orderId, sourceKey, adminUserId || null],
+  );
+
+  return { created: true, sourceKey };
+}
+
+/**
+ * Cancelling a verified order books a refund against the original income entry. The income
+ * row is left untouched (append-only history) and the refund is an expense row pointing back
+ * at it through reverses_entry_id, so the balance returns to zero for that order.
+ */
+async function recordCancellationReversal(connection, { orderId, orderNumber, adminUserId, notes }) {
+  const { effective } = await findEffectiveIncome(connection, orderId);
+  if (!effective) return { created: false };
+
+  const categoryId = await requireSystemCategory(connection, SYSTEM_REFUND_CATEGORY, 'expense');
+
+  await connection.execute(
+    `INSERT INTO cashbook_entries
+      (entry_type, amount, category_id, description, payment_method, notes, transaction_date,
+       order_id, source_key, admin_user_id, reverses_entry_id)
+     VALUES ('expense', ?, ?, ?, NULL, ?, CURRENT_DATE(), ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE source_key = source_key`,
+    [
+      effective.amount,
+      categoryId,
+      `Cancellation reversal for ${orderNumber}`,
+      notes ? String(notes).slice(0, 2000) : null,
+      orderId,
+      `order-cancelled:${effective.id}`,
+      adminUserId || null,
+      Number(effective.id),
+    ],
+  );
+
+  return { created: true, reversesEntryId: Number(effective.id) };
+}
+
 async function updateOrderStatusAdmin(orderNumber, nextStatus, {
   changedBy = 'admin',
   adminUserId = null,
@@ -419,7 +528,9 @@ async function updateOrderStatusAdmin(orderNumber, nextStatus, {
     const updates = ['order_status = ?'];
     const params = [status];
 
-    if (status === 'paid') {
+    // Stamp the verification time only on the transition into paid, so re-saving an already
+    // verified order keeps the original audit timestamp.
+    if (status === 'paid' && currentStatus !== 'paid') {
       updates.push('payment_verified_at = CURRENT_TIMESTAMP');
     } else if (status === 'shipped') {
       updates.push('shipped_at = CURRENT_TIMESTAMP');
@@ -449,35 +560,22 @@ async function updateOrderStatusAdmin(orderNumber, nextStatus, {
       // safe fallback if table is not yet migrated
     }
 
-    if (currentStatus === 'payment_confirmation_sent' && status === 'paid') {
-      const [categories] = await connection.execute(
-        `SELECT id FROM cashbook_categories
-         WHERE name = ? AND entry_type = 'income' AND is_active = 1
-         LIMIT 1 FOR UPDATE`,
-        [SYSTEM_INCOME_CATEGORY],
-      );
-      if (!categories.length) {
-        const error = new Error('Cashbook tables are unavailable. Run npm run db:migrate and retry.');
-        error.code = 'CASHBOOK_NOT_MIGRATED';
-        error.statusCode = 503;
-        throw error;
-      }
+    if (status === 'paid' && currentStatus !== 'paid') {
+      await recordVerifiedIncome(connection, {
+        orderId,
+        orderNumber: number,
+        amount: rows[0].total_amount,
+        adminUserId,
+      });
+    }
 
-      await connection.execute(
-        `INSERT INTO cashbook_entries
-          (entry_type, amount, category_id, description, payment_method, transaction_date,
-           order_id, source_key, admin_user_id)
-         VALUES ('income', ?, ?, ?, NULL, CURRENT_DATE(), ?, ?, ?)
-         ON DUPLICATE KEY UPDATE source_key = source_key`,
-        [
-          rows[0].total_amount,
-          categories[0].id,
-          `Verified payment for ${number}`,
-          orderId,
-          `order-paid:${orderId}`,
-          adminUserId || null,
-        ],
-      );
+    if (status === 'cancelled') {
+      await recordCancellationReversal(connection, {
+        orderId,
+        orderNumber: number,
+        adminUserId,
+        notes,
+      });
     }
   });
 

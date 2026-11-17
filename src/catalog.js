@@ -37,5 +37,52 @@
     return products.filter((product) => product.artistSlug === artistSlug);
   }
 
-  return { artists, products, getArtist, getProduct, getProductsByArtist };
+  /**
+   * Builds the three standard product records for any group slug, so groups managed in the
+   * database produce exactly the same product shape as the static catalogue.
+   */
+  function productsForGroup(group) {
+    const slug = String((group && group.slug) || '').trim();
+    if (!slug) return [];
+    const name = String((group && group.name) || slug).trim();
+    return productTemplates.map((template) => ({
+      ...template,
+      slug: `${slug}-${template.templateSlug}`,
+      artistSlug: slug,
+      artistName: name,
+    }));
+  }
+
+  /** Adapts a catalogue group (static artist or database row) to the artist-page shape. */
+  function artistFromGroup(group, index = 0) {
+    const slug = String((group && group.slug) || '').trim();
+    const name = String((group && group.name) || slug).trim();
+    const tagline = String((group && (group.tagline || group.fandom)) || '').trim();
+    const description = String((group && (group.description || group.note)) || '').trim();
+    return {
+      slug,
+      name,
+      fandom: tagline || name.toUpperCase(),
+      note: description || 'Explore this collection and make it yours.',
+      edition: String((group && group.edition) || tagline || 'The Collection'),
+      count: productTemplates.length,
+      index: String(index + 1).padStart(2, '0'),
+      tagline,
+      description,
+      imageUrl: group && group.imageUrl ? String(group.imageUrl) : null,
+      isActive: group && group.isActive === false ? false : true,
+      sortOrder: Number.isInteger(group && group.sortOrder) ? group.sortOrder : index,
+    };
+  }
+
+  return {
+    artists,
+    products,
+    productTemplates,
+    getArtist,
+    getProduct,
+    getProductsByArtist,
+    productsForGroup,
+    artistFromGroup,
+  };
 });

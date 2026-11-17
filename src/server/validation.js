@@ -1,6 +1,7 @@
 const catalog = require('../catalog.js');
 const pricing = require('../pricing.js');
 const options = require('../options.js');
+const serverCatalog = require('./catalog.js');
 
 // Order validation and server-side price calculation.
 // The browser total is never trusted: the same src/options.js price table that feeds the
@@ -162,8 +163,25 @@ function validateOrderPayload(payload = {}) {
   };
 }
 
+/**
+ * Confirms the submitted collection is still active. When MySQL is unavailable the static
+ * catalogue is authoritative and the product-slug check above already proved the collection
+ * exists, so the order is allowed through instead of failing closed.
+ */
+async function assertArtistAvailable(artistSlug) {
+  const { source, groups } = await serverCatalog.loadCatalog({ activeOnly: true });
+  if (source !== 'database') return;
+
+  const slug = cleanText(artistSlug, 64).toLowerCase();
+  if (!slug) throw new ValidationError({ artist_slug: 'Choose an available collection.' });
+  if (!groups.some((group) => group.slug === slug)) {
+    throw new ValidationError({ artist_slug: 'That collection is not available right now.' });
+  }
+}
+
 module.exports = {
   validateOrderPayload,
+  assertArtistAvailable,
   ValidationError,
   ALLOWED_BASES,
   ALLOWED_CLASPS,

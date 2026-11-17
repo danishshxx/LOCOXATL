@@ -84,11 +84,12 @@ test('the 3D engine is split into geometry, materials, components, scene and vie
   assert.match(styles, /\.builder-preview-panel\.is-3d/);
 });
 
-test('checkout posts the structured configuration to the order API and keeps the local fallback', () => {
+test('checkout posts the structured configuration to the order API and never fakes a local order', () => {
   const checkoutScript = read('src/checkout.js');
   assert.match(checkoutScript, /fetch\('\/api\/orders'/);
   assert.match(checkoutScript, /components/);
-  assert.match(checkoutScript, /mode: 'local-demo'/);
+  assert.doesNotMatch(checkoutScript, /local-demo|localOrderNumber/, 'a failed submission must not invent an order');
+  assert.match(checkoutScript, /setStatus\(describeFailure/, 'failures must surface an inline error');
   assert.match(checkoutScript, /payment\.html/);
   const paymentScript = read('src/payment.js');
   assert.match(paymentScript, /\/status/);

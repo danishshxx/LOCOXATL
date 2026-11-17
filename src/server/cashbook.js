@@ -1,6 +1,10 @@
 const { getPool, withTransaction } = require('./db');
 
 const SYSTEM_INCOME_CATEGORY = 'Verified Order Income';
+// Cancelling a verified order writes a refund against this category so the cashbook keeps an
+// append-only trail and the balance drops back to zero for that order.
+const SYSTEM_REFUND_CATEGORY = 'Order Refunds';
+const SYSTEM_EXPENSE_CATEGORIES = new Set([SYSTEM_REFUND_CATEGORY]);
 const DEFAULT_EXPENSE_CATEGORIES = [
   'Material',
   'Production',
@@ -9,6 +13,7 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   'Marketing',
   'Operational',
   'Other',
+  SYSTEM_REFUND_CATEGORY,
 ];
 
 const EFFECTIVE_ENTRY_SQL = `NOT EXISTS (
@@ -236,6 +241,9 @@ async function setCategoryActive(id, isActive) {
   if (!rows.length) throw requestError('category_not_found', 'Category was not found.', 404);
   if (rows[0].entry_type === 'income') {
     throw requestError('system_category', 'The verified order income category cannot be disabled.');
+  }
+  if (SYSTEM_EXPENSE_CATEGORIES.has(rows[0].name)) {
+    throw requestError('system_category', 'This system category cannot be disabled.');
   }
   await pool.execute('UPDATE cashbook_categories SET is_active = ? WHERE id = ?', [isActive ? 1 : 0, categoryId]);
   return { id: categoryId, name: rows[0].name, entryType: rows[0].entry_type, isActive };
@@ -506,6 +514,7 @@ async function getReportData(filters = {}) {
 
 module.exports = {
   SYSTEM_INCOME_CATEGORY,
+  SYSTEM_REFUND_CATEGORY,
   DEFAULT_EXPENSE_CATEGORIES,
   resolveDateRange,
   parseAmount,

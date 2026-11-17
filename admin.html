@@ -86,7 +86,15 @@
 
   <!-- Main Dashboard Content -->
   <main class="admin-main" id="adminMain" hidden>
-    
+
+    <nav class="admin-view-tabs section-wrap" id="adminViewTabs" aria-label="Dashboard views" role="tablist">
+      <button type="button" class="admin-view-tab is-active" role="tab" aria-selected="true" aria-controls="viewOrders" id="tabOrders" data-view="orders">Orders</button>
+      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewAccounting" id="tabAccounting" data-view="accounting">Cashbook &amp; Reports</button>
+      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewCatalog" id="tabCatalog" data-view="catalog">Catalog Groups</button>
+    </nav>
+
+    <div class="admin-view" id="viewOrders" role="tabpanel" aria-labelledby="tabOrders" data-view-panel="orders">
+
     <!-- KPI Metrics Row -->
     <section class="section-wrap admin-metrics-section">
       <div class="admin-section-heading">
@@ -153,6 +161,7 @@
 
         <div class="toolbar-status-tabs" id="statusTabs" role="tablist">
           <button type="button" class="tab-chip active" data-status="">All Orders (<span id="countAll">0</span>)</button>
+          <button type="button" class="tab-chip tab-chip-attention" data-status="unpaid">Needs Payment (<span id="countUnpaid">0</span>)</button>
           <button type="button" class="tab-chip" data-status="payment_confirmation_sent">Proof Sent (<span id="countProof">0</span>)</button>
           <button type="button" class="tab-chip" data-status="waiting_for_payment">Waiting (<span id="countWaiting">0</span>)</button>
           <button type="button" class="tab-chip" data-status="paid">Paid (<span id="countPaid">0</span>)</button>
@@ -198,7 +207,9 @@
       </div>
     </section>
 
-    <section class="section-wrap admin-accounting-section" id="accountingSection">
+    </div>
+
+    <section class="section-wrap admin-accounting-section" id="accountingSection" data-view-panel="accounting" role="tabpanel" aria-labelledby="tabAccounting" hidden>
       <div class="admin-section-heading">
         <div>
           <span class="eyebrow">CASH FLOW & REPORTS</span>
@@ -339,11 +350,46 @@
       </section>
     </section>
 
+    <section class="section-wrap admin-catalog-section" id="viewCatalog" data-view-panel="catalog" role="tabpanel" aria-labelledby="tabCatalog" hidden>
+      <div class="admin-section-heading">
+        <div>
+          <span class="eyebrow">STOREFRONT CURATION</span>
+          <h1>Catalog Groups</h1>
+          <p class="accounting-intro">Publish, rename and reorder the collections shown on the storefront. Hidden groups disappear from the shop but stay attached to historical orders.</p>
+        </div>
+        <div class="heading-actions">
+          <button type="button" class="button button-dark button-small" id="addGroupBtn">+ Add Group</button>
+          <button type="button" class="button button-outline button-small" id="refreshCatalogBtn">Refresh</button>
+        </div>
+      </div>
+
+      <div class="admin-table-card">
+        <div class="table-wrap">
+          <table class="admin-orders-table catalog-table">
+            <thead>
+              <tr>
+                <th class="th-order">ORDER</th>
+                <th>GROUP</th>
+                <th>SLUG</th>
+                <th>TAGLINE</th>
+                <th>STORE</th>
+                <th class="th-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="catalogGroupsBody">
+              <tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="catalog-source-note" id="catalogSourceNote" role="status"></p>
+      </div>
+    </section>
+
   </main>
 
   <!-- Detail & 3D Production Inspector Drawer / Modal -->
   <div class="admin-drawer-backdrop" id="detailDrawerBackdrop" hidden>
-    <div class="admin-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerOrderTitle">
+    <div class="admin-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerOrderTitle" tabindex="-1">
       
       <!-- Drawer Top Bar -->
       <div class="drawer-header">
@@ -420,6 +466,7 @@
               <span class="eyebrow">CURRENT STATUS</span>
               <div class="status-badge-lg" id="detailStatusBadge">WAITING FOR PAYMENT</div>
             </div>
+            <p class="status-meta" id="detailStatusMeta" hidden></p>
 
             <div class="quick-status-actions" id="quickStatusActions">
               <!-- Buttons dynamically rendered based on status -->
@@ -534,6 +581,52 @@
 
       </div>
 
+    </div>
+  </div>
+
+  <!-- Catalog group editor -->
+  <div class="admin-modal-backdrop" id="groupModalBackdrop" hidden>
+    <div class="admin-modal" id="groupModal" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
+      <div class="admin-modal-header">
+        <div>
+          <span class="eyebrow" id="groupModalEyebrow">NEW COLLECTION</span>
+          <h2 id="groupModalTitle">Add group</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" id="groupModalClose" aria-label="Close group form">✕</button>
+      </div>
+      <form id="groupForm" class="admin-modal-form">
+        <input type="hidden" id="groupFormId" />
+        <label>Group name <input type="text" id="groupName" maxlength="120" required placeholder="e.g. TWICE" autocomplete="off" /></label>
+        <label>Slug <input type="text" id="groupSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
+        <label>Tagline / fandom <input type="text" id="groupTagline" maxlength="255" placeholder="e.g. ONCE" autocomplete="off" /></label>
+        <label class="accounting-wide-field">Description <textarea id="groupDescription" rows="3" maxlength="2000" placeholder="Shown on the collection page"></textarea></label>
+        <div class="catalog-image-field">
+          <span class="catalog-field-label">Card image</span>
+          <div class="catalog-image-preview" id="groupImagePreview" hidden>
+            <img id="groupImageThumb" alt="Selected card image" />
+            <button type="button" class="text-link" id="groupImageRemove">Remove image</button>
+          </div>
+          <label class="catalog-image-picker">
+            <input type="file" id="groupImageInput" accept="image/png,image/jpeg,image/webp" />
+            <span>Choose an image — PNG, JPEG or WebP, up to 3 MB</span>
+          </label>
+          <p class="catalog-image-note" id="groupImageNote" role="status"></p>
+        </div>
+        <div class="admin-modal-row">
+          <label>Sort order <input type="number" id="groupSortOrder" step="1" min="-9999" max="9999" /></label>
+          <label class="catalog-toggle-field">Visible on storefront
+            <span class="toggle-switch">
+              <input type="checkbox" id="groupIsActive" checked />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+        <p class="admin-auth-error" id="groupFormError" role="alert" hidden></p>
+        <div class="admin-modal-actions">
+          <button type="button" class="button button-outline button-small" id="groupFormCancel">Cancel</button>
+          <button type="submit" class="button button-dark button-small" id="groupFormSubmit">Save group</button>
+        </div>
+      </form>
     </div>
   </div>
 
