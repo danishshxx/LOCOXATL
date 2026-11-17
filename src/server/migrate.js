@@ -200,7 +200,15 @@ async function runAdditiveMigrations() {
     // Existing installations carry the older unique key that allowed one income row per order
     // for ever. Reversal + re-verification needs multiple income rows, so the key is dropped;
     // idempotency now comes from uq_cashbook_source_key and the reversal pointer.
+    //
+    // fk_cashbook_order has no index of its own: InnoDB borrows the leftmost column of
+    // uq_cashbook_order_entry_type to support it. Dropping the key therefore fails with
+    // "Cannot drop index ... needed in a foreign key constraint" on any database upgraded from
+    // 002. Give the constraint a plain index first, then drop the legacy key.
     const cashbookIndexes = await tableIndexes(connection, 'cashbook_entries');
+    if (!cashbookIndexes.has('idx_cashbook_order')) {
+      await connection.query('ALTER TABLE cashbook_entries ADD INDEX idx_cashbook_order (order_id)');
+    }
     if (cashbookIndexes.has('uq_cashbook_order_entry_type')) {
       await connection.query('ALTER TABLE cashbook_entries DROP INDEX uq_cashbook_order_entry_type');
     }

@@ -44,8 +44,11 @@ existing database, or just run `npm run db:migrate`, which applies all of them:
 | `database/migrations/004_catalog_group_images.sql` | `catalog_groups.image_url` |
 
 `003` supersedes part of `002`'s original definition: it drops
-`uq_cashbook_order_entry_type` so a refunded order can be verified again. Applying `002`
-alone is not enough — always finish with `003` and `004`.
+`uq_cashbook_order_entry_type` so a refunded order can be verified again. Because
+`fk_cashbook_order` borrows that composite key as its only index on `order_id`, `003` first
+adds `idx_cashbook_order (order_id)` and only then drops the key — otherwise MariaDB aborts
+with `Cannot drop index ... needed in a foreign key constraint`. Applying `002` alone is not
+enough — always finish with `003` and `004`.
 
 The base schema includes:
 

@@ -78,6 +78,22 @@ PREPARE migration_stmt FROM @statement;
 EXECUTE migration_stmt;
 DEALLOCATE PREPARE migration_stmt;
 
+-- fk_cashbook_order has no index of its own; InnoDB borrows the leftmost column of
+-- uq_cashbook_order_entry_type to support the constraint. MariaDB refuses to drop a key that a
+-- foreign key depends on, so the constraint gets a plain index before the legacy key goes.
+SET @has_order_index := (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cashbook_entries' AND INDEX_NAME = 'idx_cashbook_order'
+);
+SET @statement := IF(
+  @has_order_index = 0,
+  'ALTER TABLE cashbook_entries ADD INDEX idx_cashbook_order (order_id)',
+  'DO 0'
+);
+PREPARE migration_stmt FROM @statement;
+EXECUTE migration_stmt;
+DEALLOCATE PREPARE migration_stmt;
+
 -- An order may now be verified, reversed and verified again, so the old "one income row per
 -- order, ever" key has to go. Idempotency is enforced by uq_cashbook_source_key instead.
 SET @has_legacy_order_key := (
