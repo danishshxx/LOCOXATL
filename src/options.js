@@ -15,34 +15,49 @@
     { id: 'black', name: 'Black clasp', price: 5000 },
   ];
 
-  function getAddon(id) {
-    return addons.find((addon) => addon.id === id) || null;
+  /**
+   * The bundled table is the fallback whenever the dashboard table is missing, empty, or the
+   * database is unreachable. Entries may use `id` or `key`, so both this module and the rows
+   * returned by `/api/catalog` resolve through the same lookup.
+   */
+  function pricingTable(source) {
+    const table = source && typeof source === 'object' ? source : {};
+    return {
+      addons: Array.isArray(table.addons) && table.addons.length ? table.addons : addons,
+      clasps: Array.isArray(table.clasps) && table.clasps.length ? table.clasps : clasps,
+    };
   }
 
-  function getClasp(id) {
-    return clasps.find((clasp) => clasp.id === id) || null;
+  function getAddon(id, list = addons) {
+    return list.find((addon) => addon.id === id || addon.key === id) || null;
+  }
+
+  function getClasp(id, list = clasps) {
+    return list.find((clasp) => clasp.id === id || clasp.key === id) || null;
   }
 
   function quote(input = {}) {
     if (!pricing || typeof pricing.calculatePrice !== 'function') {
       throw new Error('LocoxatlPricing must be loaded before LocoxatlOptions.');
     }
+    const table = pricingTable(input.pricing);
     const addonIds = input.addonIds ?? [];
-    const selectedAddons = addonIds.map(getAddon).filter(Boolean);
-    const clasp = getClasp(input.claspId ?? 'silver');
+    const selectedAddons = addonIds.map((id) => getAddon(id, table.addons)).filter(Boolean);
+    const clasp = getClasp(input.claspId ?? 'silver', table.clasps);
     if (!clasp) throw new RangeError(`Unknown clasp: ${input.claspId}`);
     const personalizationSelected = Boolean(input.initial) || selectedAddons.some((addon) => addon.personalization);
+    const initialAddon = getAddon('initial', table.addons);
 
     return pricing.calculatePrice({
       basePrice: input.basePrice ?? 0,
       addonPrices: selectedAddons.filter((addon) => !addon.personalization).map((addon) => addon.price),
       claspPrice: clasp.price,
-      personalizationPrice: personalizationSelected ? getAddon('initial').price : 0,
+      personalizationPrice: personalizationSelected && initialAddon ? initialAddon.price : 0,
       quantity: input.quantity ?? 1,
       shipping: input.shipping ?? 0,
       discount: input.discount ?? 0,
     });
   }
 
-  return { addons, clasps, getAddon, getClasp, quote };
+  return { addons, clasps, pricingTable, getAddon, getClasp, quote };
 });

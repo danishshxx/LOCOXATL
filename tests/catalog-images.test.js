@@ -53,6 +53,9 @@ async function execute(sql, params = []) {
     row.image_url = null;
     return [{ affectedRows: 1 }];
   }
+  // The design and price tables exist but are empty in this fixture.
+  if (/^SELECT .* FROM catalog_products/i.test(query)) return [[]];
+  if (/^SELECT .* FROM pricing_options/i.test(query)) return [[]];
 
   throw new Error(`Unexpected catalog image test SQL: ${query}`);
 }

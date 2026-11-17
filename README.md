@@ -122,6 +122,29 @@ flagged in the table. Opening an order exposes **Verify Payment**, which moves i
 stamps `payment_verified_at` once, writes an `order_status_history` row, and books the income in
 `cashbook_entries` — all in one transaction.
 
+## Catalog: designs and pricing
+
+The Catalog view has three sections: **Collections**, **Product Designs** and **Pricing**.
+
+- `catalog_products` holds the designs inside a collection. The stored slug is short
+  (`cloud-heart`) and is unique per collection; the storefront addresses a design as
+  `<group-slug>-<slug>` (`blackpink-cloud-heart`), which is the URL shape the bundled catalogue
+  always used. `template_key` (`acrylic-keychain`, `photocard-holder`, `phone-charm`) picks the
+  3D silhouette the studio renders.
+- `pricing_options` holds the studio add-on and clasp prices, keyed by the ids in
+  `src/options.js` so historical order snapshots keep resolving.
+
+Admin routes (session + same-origin required): `GET/POST /api/admin/catalog/products`,
+`PATCH /api/admin/catalog/products/:id`, `GET/PATCH /api/admin/pricing`.
+
+`GET /api/catalog` returns `{ source, groups, products, options }`. When MySQL is unreachable,
+a table is missing, or the tables are empty, the server falls back to `src/catalog.js` and
+`src/options.js`, so the storefront and the studio keep working.
+
+Order pricing is authoritative: `POST /api/orders` re-reads the design's `base_price` and the
+live `pricing_options` and recomputes the total, rejecting designs that are hidden or belong to
+another collection. Historical orders keep the amount they were placed at.
+
 ## Brand and implementation
 
 - Font: locally hosted Inter.

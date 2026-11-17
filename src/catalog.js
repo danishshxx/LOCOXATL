@@ -13,10 +13,24 @@
   ];
 
   const productTemplates = [
-    { templateSlug: 'cloud-heart', name: 'Cloud Heart', category: 'BASE CHARM', description: 'A clean heart silhouette in glossy white acrylic.', price: 45000, baseId: 'heart', symbol: 'H', tag: 'BESTSELLER' },
-    { templateSlug: 'orbit-star', name: 'Orbit Star', category: 'BASE CHARM', description: 'A star-shaped base with a polished finish.', price: 45000, baseId: 'star', symbol: 'S', tag: 'SIGNATURE' },
-    { templateSlug: 'soft-ribbon', name: 'Soft Ribbon', category: 'BASE CHARM', description: 'A soft ribbon silhouette made for your combination.', price: 49000, baseId: 'bow', symbol: 'R', tag: 'NEW' },
+    { templateSlug: 'cloud-heart', templateKey: 'acrylic-keychain', name: 'Cloud Heart', category: 'BASE CHARM', description: 'A clean heart silhouette in glossy white acrylic.', price: 45000, baseId: 'heart', symbol: 'H', tag: 'BESTSELLER' },
+    { templateSlug: 'orbit-star', templateKey: 'photocard-holder', name: 'Orbit Star', category: 'BASE CHARM', description: 'A star-shaped base with a polished finish.', price: 45000, baseId: 'star', symbol: 'S', tag: 'SIGNATURE' },
+    { templateSlug: 'soft-ribbon', templateKey: 'phone-charm', name: 'Soft Ribbon', category: 'BASE CHARM', description: 'A soft ribbon silhouette made for your combination.', price: 49000, baseId: 'bow', symbol: 'R', tag: 'NEW' },
   ];
+
+  // template_key is what the admin dashboard stores in catalog_products and what the 3D studio
+  // renders; baseId is the silhouette the customizer swaps between.
+  const TEMPLATE_KEYS = productTemplates.map((template) => template.templateKey);
+
+  function templateFor(templateKey) {
+    const key = String(templateKey == null ? '' : templateKey).trim().toLowerCase();
+    return productTemplates.find((template) => template.templateKey === key) || null;
+  }
+
+  function baseIdForTemplate(templateKey) {
+    const template = templateFor(templateKey);
+    return template ? template.baseId : null;
+  }
 
   const products = artists.flatMap((artist) => productTemplates.map((template) => ({
     ...template,
@@ -79,6 +93,9 @@
     artists,
     products,
     productTemplates,
+    TEMPLATE_KEYS,
+    templateFor,
+    baseIdForTemplate,
     getArtist,
     getProduct,
     getProductsByArtist,

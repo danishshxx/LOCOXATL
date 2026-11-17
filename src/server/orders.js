@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { withTransaction, getPool } = require('./db');
-const { validateOrderPayload, assertArtistAvailable, ValidationError } = require('./validation');
+const { validateOrderPayload, ValidationError } = require('./validation');
+const serverCatalog = require('./catalog');
 const { SYSTEM_INCOME_CATEGORY, SYSTEM_REFUND_CATEGORY } = require('./cashbook');
 
 const ORDER_STATUSES = ['waiting_for_payment', 'payment_confirmation_sent', 'paid', 'in_production', 'shipped', 'completed', 'cancelled'];
@@ -44,9 +45,11 @@ function isDuplicateKeyError(error) {
 }
 
 async function createOrder(payload) {
-  const order = validateOrderPayload(payload);
-  // Reject collections the shop has since hidden, before any order row is written.
-  await assertArtistAvailable(order.artist ? order.artist.slug : order.product.artistSlug);
+  // The live catalogue decides which designs exist, which collection they belong to, and what
+  // they cost. When MySQL is unavailable loadCatalog() returns the bundled fallback, so the
+  // storefront keeps working and the static prices apply.
+  const liveCatalog = await serverCatalog.loadCatalog({ activeOnly: true });
+  const order = validateOrderPayload(payload, { catalog: liveCatalog });
   let lastError = null;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
