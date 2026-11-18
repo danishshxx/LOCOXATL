@@ -2086,3 +2086,49 @@ body.admin-body {
   }
 }
 
+/* BUNDLE PACKAGES ("PAKETAN") */
+.bundle-addon-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bundle-addon-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bundle-addon-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.bundle-addon-option:hover {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.bundle-addon-option:has(input:checked) {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+  font-weight: 600;
+}
+
+.bundle-addon-option input {
+  cursor: pointer;
+}
+
+.bundle-addon-option input:focus-visible {
+  outline: 2px solid var(--admin-accent-black);
+  outline-offset: 3px;
+}
+

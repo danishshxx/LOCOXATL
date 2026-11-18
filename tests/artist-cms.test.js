@@ -212,6 +212,8 @@ async function execute(sql, params = []) {
     return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
   }
 
+  if (/FROM catalog_bundles/i.test(query)) return [[]];
+
   throw new Error(`Unexpected artist CMS test SQL: ${query}`);
 }
 

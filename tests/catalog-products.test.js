@@ -161,6 +161,8 @@ async function execute(sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
+  if (/FROM catalog_bundles/i.test(query)) return [[]];
+
   throw new Error(`Unexpected catalog product test SQL: ${query}`);
 }
 

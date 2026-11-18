@@ -174,3 +174,27 @@ CREATE TABLE IF NOT EXISTS pricing_options (
   UNIQUE KEY uq_pricing_option_key (option_key),
   KEY idx_pricing_category_order (category, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Bundle packages ("paketan"): a fixed price that includes a number of add-ons for free.
+-- `group_id` is NULL when the bundle is available in every collection; `allowed_addon_keys`
+-- is NULL when any active add-on may be taken for free.
+CREATE TABLE IF NOT EXISTS catalog_bundles (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  group_id INT UNSIGNED NULL,
+  slug VARCHAR(64) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  description TEXT NULL,
+  bundle_price INT UNSIGNED NOT NULL,
+  free_addon_quota INT UNSIGNED NOT NULL DEFAULT 1,
+  allowed_addon_keys JSON NULL,
+  image_url VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_catalog_bundles_slug (slug),
+  KEY idx_catalog_bundles_active_order (is_active, sort_order),
+  KEY idx_catalog_bundles_group (group_id),
+  CONSTRAINT fk_bundle_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

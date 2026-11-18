@@ -59,6 +59,10 @@
   let artistPendingPortraitRemoval = false;
   let artistPendingDesign = null;
   let artistPendingDesignRemoval = false;
+  // Bundle packages ("paketan") live on the same Catalog view as groups and members.
+  let bundles = [];
+  let bundlePendingImage = null;
+  let bundlePendingImageRemoval = false;
 
   // ---------------------------------------------------------------------------
   // API Client with Auth
@@ -1168,7 +1172,7 @@
   // resulting URL is persisted in MySQL.
   // ---------------------------------------------------------------------------
   function setArtistTab(tab) {
-    const target = ['groups', 'members'].includes(tab) ? tab : 'groups';
+    const target = ['groups', 'members', 'bundles'].includes(tab) ? tab : 'groups';
     artistGroupTab = target;
 
     $$('[data-artist-panel]').forEach((panel) => {
@@ -1182,6 +1186,7 @@
 
     if (target === 'groups') loadArtistGroups();
     if (target === 'members') loadArtistMembers();
+    if (target === 'bundles') loadBundles();
   }
 
   $$('#artistSubtabs .catalog-subtab').forEach((button) => {
@@ -1496,6 +1501,8 @@
       if (!response.ok) throw new Error(data.message || 'Group could not be saved.');
 
       let saved = data.group;
+      // A failed cover/hero upload must not turn a retry into a second POST for the same slug.
+      if (!id) $('#artistGroupFormId').value = String(saved.id);
       if (artistPendingCover) saved = await saveGroupImage(saved.id, 'cover', artistPendingCover);
       else if (artistPendingCoverRemoval) saved = await saveGroupImage(saved.id, 'cover', null);
       if (artistPendingHero) saved = await saveGroupImage(saved.id, 'hero', artistPendingHero);
@@ -1534,6 +1541,259 @@
       showToast(`Deleted "${name}".`);
     } catch (error) {
       showToast(`Delete error: ${error.message}`);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bundle packages ("paketan")
+  //
+  // A bundle is a fixed price that includes a quota of eligible add-ons for free. It reuses the
+  // same table, modal and image helpers as groups and members; the only new control is the
+  // eligible add-on picker, which stays empty when any active add-on may be taken.
+  // ---------------------------------------------------------------------------
+  async function loadBundles() {
+    const tbody = $('#bundlesBody');
+    const note = $('#bundlesNote');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading bundle packages...</td></tr>';
+
+    try {
+      await ensureArtistGroupsLoaded();
+      const response = await adminFetch('/api/admin/catalog/bundles');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Bundle packages could not be loaded.');
+      bundles = data.bundles || [];
+      renderBundles();
+      const live = bundles.filter((bundle) => bundle.isActive).length;
+      note.textContent = `${bundles.length} bundle${bundles.length === 1 ? '' : 's'} · ${live} offered in the studio.`;
+    } catch (error) {
+      bundles = [];
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = databaseMessage(error, 'Bundle packages');
+    }
+  }
+
+  function bundleAddonSummary(keys) {
+    return Array.isArray(keys) && keys.length ? keys.join(', ') : 'any add-on';
+  }
+
+  function renderBundles() {
+    const tbody = $('#bundlesBody');
+    if (!bundles.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No bundle packages yet. Add the first paketan.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = bundles.map((bundle) => {
+      const image = safeImageUrl(bundle.imageUrl);
+      const collection = bundle.groupId ? groupName(bundle.groupId) : 'Every collection';
+      return `
+      <tr data-bundle-row="${bundle.id}">
+        <td class="customer-cell">
+          <span class="catalog-group-name">
+            ${image
+              ? `<span class="catalog-thumb" style="background-image:url('${image}')" aria-hidden="true"></span>`
+              : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
+            <strong>${escapeHtml(bundle.name)}</strong>
+          </span>
+          <span>${escapeHtml(bundle.description || 'No description')}</span>
+        </td>
+        <td>${escapeHtml(collection)}</td>
+        <td><code class="catalog-slug">${escapeHtml(bundle.slug)}</code></td>
+        <td>${escapeHtml(money(bundle.price))}</td>
+        <td>${bundle.freeAddonQuota} free · ${escapeHtml(bundleAddonSummary(bundle.allowedAddonKeys))}</td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-bundle="${bundle.id}" ${bundle.isActive ? 'checked' : ''} aria-label="Offer ${escapeHtml(bundle.name)} in the studio" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${bundle.isActive ? 'Live' : 'Hidden'}</span>
+          </label>
+        </td>
+        <td class="artist-row-actions">
+          <button type="button" class="button button-outline button-small" data-edit-bundle="${bundle.id}">Edit</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-edit-bundle]').forEach((button) => {
+      button.addEventListener('click', () => openBundleModal(Number(button.dataset.editBundle)));
+    });
+    tbody.querySelectorAll('[data-toggle-bundle]').forEach((input) => {
+      input.addEventListener('change', () => toggleBundle(Number(input.dataset.toggleBundle), input.checked));
+    });
+  }
+
+  async function toggleBundle(id, isActive) {
+    try {
+      const response = await adminFetch(`/api/admin/catalog/bundles/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Bundle could not be updated.');
+      await loadBundles();
+      showToast(isActive ? 'Bundle shown in the studio.' : 'Bundle hidden from the studio.');
+    } catch (error) {
+      showToast(`Bundle error: ${error.message}`);
+      await loadBundles();
+    }
+  }
+
+  function syncBundleGroupOptions() {
+    const select = $('#bundleGroup');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = '<option value="">Every collection</option>'
+      + artistGroups
+        .map((group) => `<option value="${group.id}">${escapeHtml(group.name)}${group.isActive ? '' : ' (hidden)'}</option>`)
+        .join('');
+    select.value = current;
+  }
+
+  /** Eligible add-ons come from the live price table, with src/options.js as the fallback. */
+  function renderBundleAddonChoices(selected) {
+    const container = $('#bundleAddonChoices');
+    if (!container) return;
+
+    const configured = (pricingOptions.length ? pricingOptions : [])
+      .filter((option) => option.category === 'addon' && option.key !== 'initial')
+      .map((option) => ({ key: option.key, label: option.label }));
+    const fallback = window.LocoxatlOptions && Array.isArray(window.LocoxatlOptions.addons)
+      ? window.LocoxatlOptions.addons
+        .filter((addon) => addon.id !== 'initial')
+        .map((addon) => ({ key: addon.id, label: addon.name }))
+      : [];
+    const list = configured.length ? configured : fallback;
+    const chosen = new Set(Array.isArray(selected) ? selected : []);
+
+    container.innerHTML = list.length
+      ? list.map((addon) => `
+        <label class="bundle-addon-option">
+          <input type="checkbox" data-bundle-addon="${escapeHtml(addon.key)}" ${chosen.has(addon.key) ? 'checked' : ''} />
+          <span>${escapeHtml(addon.label)}</span>
+        </label>`).join('')
+      : '<p class="catalog-image-note">No add-ons are configured yet.</p>';
+  }
+
+  async function openBundleModal(bundleId) {
+    if (!pricingOptions.length) await loadPricing();
+    if (!artistGroups.length) await ensureArtistGroupsLoaded().catch(() => {});
+
+    const bundle = bundleId ? bundles.find((row) => row.id === bundleId) : null;
+    syncBundleGroupOptions();
+    $('#bundleFormError').hidden = true;
+    $('#bundleForm').reset();
+    $('#bundleFormId').value = bundle ? String(bundle.id) : '';
+    $('#bundleName').value = bundle ? bundle.name : '';
+    $('#bundleSlug').value = bundle ? bundle.slug : '';
+    $('#bundleGroup').value = bundle && bundle.groupId ? String(bundle.groupId) : '';
+    $('#bundlePrice').value = bundle ? String(bundle.price) : '';
+    $('#bundleQuota').value = String(bundle ? bundle.freeAddonQuota : 1);
+    $('#bundleSortOrder').value = String(bundle ? bundle.sortOrder : bundles.length);
+    $('#bundleDescription').value = bundle ? bundle.description : '';
+    $('#bundleIsActive').checked = bundle ? Boolean(bundle.isActive) : true;
+    renderBundleAddonChoices(bundle ? bundle.allowedAddonKeys : null);
+
+    bundlePendingImage = null;
+    bundlePendingImageRemoval = false;
+    $('#bundleImageInput').value = '';
+    setImageNote('bundleImageNote', '');
+    renderArtistImagePreview('bundleImagePreview', 'bundleImageThumb', bundle ? bundle.imageUrl : '');
+
+    $('#bundleModalEyebrow').textContent = bundle ? 'EDIT BUNDLE' : 'NEW BUNDLE';
+    $('#bundleModalTitle').textContent = bundle ? bundle.name : 'Add bundle';
+    $('#bundleFormSubmit').textContent = bundle ? 'Save changes' : 'Create bundle';
+
+    lastFocusedElement = document.activeElement;
+    $('#bundleModalBackdrop').hidden = false;
+    $('#bundleModal').focus();
+    $('#bundleName').focus();
+  }
+
+  function closeBundleModal() {
+    $('#bundleModalBackdrop').hidden = true;
+    bundlePendingImage = null;
+    bundlePendingImageRemoval = false;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+
+  $('#bundleImageInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('bundleImageNote', 'Preparing image…');
+    try {
+      bundlePendingImage = await readImageFile(file);
+      bundlePendingImageRemoval = false;
+      renderArtistImagePreview('bundleImagePreview', 'bundleImageThumb', bundlePendingImage);
+      setImageNote('bundleImageNote', `Ready to upload · about ${Math.round((bundlePendingImage.length * 0.75) / 1024)} KB after resizing.`);
+    } catch (error) {
+      bundlePendingImage = null;
+      setImageNote('bundleImageNote', error.message);
+      $('#bundleImageInput').value = '';
+    }
+  });
+
+  $('#bundleImageRemove').addEventListener('click', () => {
+    bundlePendingImage = null;
+    bundlePendingImageRemoval = true;
+    $('#bundleImageInput').value = '';
+    renderArtistImagePreview('bundleImagePreview', 'bundleImageThumb', '');
+    setImageNote('bundleImageNote', 'The image will be removed when you save.');
+  });
+
+  $('#addBundleBtn').addEventListener('click', () => openBundleModal(null));
+  $('#refreshBundlesBtn').addEventListener('click', () => loadBundles());
+  $('#bundleModalClose').addEventListener('click', closeBundleModal);
+  $('#bundleFormCancel').addEventListener('click', closeBundleModal);
+  $('#bundleModalBackdrop').addEventListener('click', (event) => {
+    if (event.target === $('#bundleModalBackdrop')) closeBundleModal();
+  });
+
+  $('#bundleForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#bundleFormId').value;
+    const errorEl = $('#bundleFormError');
+    const allowedAddonKeys = [...$$('[data-bundle-addon]')]
+      .filter((input) => input.checked)
+      .map((input) => input.dataset.bundleAddon);
+    const payload = {
+      name: $('#bundleName').value,
+      slug: $('#bundleSlug').value,
+      groupId: $('#bundleGroup').value || null,
+      description: $('#bundleDescription').value,
+      bundlePrice: Number($('#bundlePrice').value),
+      freeAddonQuota: Number($('#bundleQuota').value),
+      allowedAddonKeys: allowedAddonKeys.length ? allowedAddonKeys : null,
+      sortOrder: Number($('#bundleSortOrder').value),
+      isActive: $('#bundleIsActive').checked,
+    };
+    if (!Number.isInteger(payload.bundlePrice) || payload.bundlePrice < 0) {
+      showToast('Bundle price must be a whole number of at least 0.');
+      $('#bundlePrice').focus();
+      return;
+    }
+    if (bundlePendingImage) payload.imageUrl = bundlePendingImage;
+    else if (bundlePendingImageRemoval) payload.imageUrl = null;
+
+    errorEl.hidden = true;
+    $('#bundleFormSubmit').disabled = true;
+
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/catalog/bundles/${id}` : '/api/admin/catalog/bundles',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Bundle could not be saved.');
+
+      closeBundleModal();
+      await loadBundles();
+      showToast(id ? 'Bundle updated.' : 'Bundle created.');
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      $('#bundleFormSubmit').disabled = false;
     }
   });
 
@@ -2122,11 +2382,13 @@
   document.addEventListener('keydown', (event) => {
     const artistGroupModalOpen = !$('#artistGroupModalBackdrop').hidden;
     const artistMemberModalOpen = !$('#artistMemberModalBackdrop').hidden;
+    const bundleModalOpen = !$('#bundleModalBackdrop').hidden;
     const drawerOpen = !$('#detailDrawerBackdrop').hidden;
 
     if (event.key === 'Tab') {
       if (artistGroupModalOpen) trapFocusWithin($('#artistGroupModal'), event);
       else if (artistMemberModalOpen) trapFocusWithin($('#artistMemberModal'), event);
+      else if (bundleModalOpen) trapFocusWithin($('#bundleModal'), event);
       else if (drawerOpen) trapFocusWithin($('#detailDrawer'), event);
       return;
     }
@@ -2138,6 +2400,10 @@
     }
     if (artistMemberModalOpen) {
       closeArtistMemberModal();
+      return;
+    }
+    if (bundleModalOpen) {
+      closeBundleModal();
       return;
     }
     if (drawerOpen) closeOrderDrawer();

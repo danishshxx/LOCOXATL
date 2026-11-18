@@ -266,8 +266,8 @@ async function handleApiRequest(request, response, url) {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
         return true;
       }
-      const { source, groups, members, products, options, product } = await serverCatalog.loadCatalog({ activeOnly: true });
-      sendJson(response, 200, { ok: true, source, groups, members, products, options, product });
+      const { source, groups, members, products, bundles, options, product } = await serverCatalog.loadCatalog({ activeOnly: true });
+      sendJson(response, 200, { ok: true, source, groups, members, products, bundles, options, product });
       return true;
     }
 
@@ -540,6 +540,39 @@ async function handleApiRequest(request, response, url) {
         }
 
         sendJson(response, 404, { error: 'not_found', message: 'Unknown member route.' });
+        return true;
+      }
+
+      // GET/POST /api/admin/catalog/bundles  ·  PATCH /api/admin/catalog/bundles/:id
+      if (segments[2] === 'catalog' && segments[3] === 'bundles') {
+        if (segments.length === 4) {
+          if (request.method === 'GET') {
+            const bundles = await serverCatalog.listBundles();
+            sendJson(response, 200, { ok: true, bundles });
+            return true;
+          }
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const bundle = await serverCatalog.createBundle(body);
+            sendJson(response, 201, { ok: true, bundle });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+          return true;
+        }
+
+        if (segments.length === 5) {
+          if (request.method !== 'PATCH') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
+            return true;
+          }
+          const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+          const bundle = await serverCatalog.updateBundle(segments[4], body);
+          sendJson(response, 200, { ok: true, bundle });
+          return true;
+        }
+
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown bundle route.' });
         return true;
       }
 

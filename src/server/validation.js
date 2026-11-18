@@ -98,11 +98,12 @@ function sanitizeTransform(transform) {
   };
 }
 
-function quoteFor({ basePrice, configuration, quantity, pricingTable }) {
+function quoteFor({ basePrice, configuration, quantity, pricingTable, bundle }) {
   // When a live table is supplied the prices come from pricing_options; otherwise
   // src/pricing.js falls back to src/options.js, so both paths agree on the same total.
   return pricing.calculatePrice({
     basePrice,
+    bundle: bundle || undefined,
     addonIds: configuration.addons.filter((id) => id !== 'initial'),
     claspId: configuration.clasp,
     initial: configuration.initial,
@@ -147,6 +148,7 @@ function validateOrderPayload(payload = {}, context = {}) {
   const groups = catalogGroups(catalogData);
   const pricingTable = catalogData && catalogData.options ? catalogData.options : null;
   const productSettings = catalogData && catalogData.product ? catalogData.product : null;
+  const bundles = catalogData && Array.isArray(catalogData.bundles) ? catalogData.bundles : [];
 
   const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
   const configuration = normalizeConfiguration(payload.order?.configuration || payload.configuration || {}, errors);
@@ -202,6 +204,35 @@ function validateOrderPayload(payload = {}, context = {}) {
     }
   }
 
+  // A bundle package is only usable when it is active, exists in the live catalogue, and either
+  // applies to every collection or to the collection this order belongs to.
+  const bundleId = Number(payload.order?.bundle?.id ?? payload.bundleId);
+  const bundleSlug = cleanText(payload.order?.bundle?.slug || payload.bundleSlug, 64).toLowerCase();
+  const wantsBundle = (Number.isSafeInteger(bundleId) && bundleId > 0) || Boolean(bundleSlug);
+
+  let bundle = null;
+  if (wantsBundle) {
+    bundle = Number.isSafeInteger(bundleId) && bundleId > 0
+      ? bundles.find((item) => Number(item.id) === bundleId) || null
+      : bundles.find((item) => String(item.slug).toLowerCase() === bundleSlug) || null;
+
+    if (!bundle) {
+      errors.bundle = 'That bundle package is not available right now.';
+    } else if (bundle.isActive === false) {
+      errors.bundle = 'That bundle package is not available right now.';
+    } else if (bundle.groupId != null && (!group || Number(group.id) !== Number(bundle.groupId))) {
+      errors.bundle = 'That bundle package belongs to another collection.';
+    }
+  }
+
+  const freeAddonIds = bundle
+    ? pricing.freeAddonIds({
+      addonIds: configuration.addons,
+      quota: bundle.freeAddonQuota,
+      allowedAddonKeys: bundle.allowedAddonKeys,
+    })
+    : [];
+
   const quantity = Number(payload.order?.quantity ?? payload.quantity ?? 1);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
     errors.quantity = `Quantity must be an integer between 1 and ${MAX_QUANTITY}.`;
@@ -211,6 +242,9 @@ function validateOrderPayload(payload = {}, context = {}) {
     configuration,
     member: memberMode ? memberSlug : undefined,
     product: memberMode ? undefined : productSlug,
+    bundle: bundle
+      ? { id: bundle.id, slug: bundle.slug, name: bundle.name, price: bundle.price, freeAddonIds }
+      : undefined,
   });
   if (configurationJson.length > MAX_CONFIGURATION_BYTES) {
     errors.configuration = 'The configuration snapshot is too large.';
@@ -248,18 +282,31 @@ function validateOrderPayload(payload = {}, context = {}) {
     artistName = group ? group.name : (pricedProduct.groupName || null);
   }
 
-  const quote = quoteFor({ basePrice, configuration, quantity, pricingTable });
+  // A bundle replaces the shared base price; the free add-ons are recomputed here so a client
+  // cannot mark its own add-ons as included.
+  if (bundle) basePrice = Number(bundle.price);
+  const quote = quoteFor({
+    basePrice,
+    configuration,
+    quantity,
+    pricingTable,
+    bundle: bundle ? { price: Number(bundle.price), freeAddonIds } : null,
+  });
   const submittedTotal = Number(payload.order?.total);
 
+  const bundleSuffix = bundle ? ` · ${bundle.name}` : '';
   const productName = memberMode
-    ? (artistName ? `${member.name} Keychain — ${artistName}` : `${member.name} Keychain`)
-    : (artistName ? `${pricedProduct.name} — ${artistName}` : pricedProduct.name);
+    ? (artistName ? `${member.name} Keychain — ${artistName}${bundleSuffix}` : `${member.name} Keychain${bundleSuffix}`)
+    : (artistName ? `${pricedProduct.name} — ${artistName}${bundleSuffix}` : `${pricedProduct.name}${bundleSuffix}`);
 
   return {
     customer,
     product: pricedProduct,
     member: memberInfo,
     artist: group ? { slug: group.slug, name: group.name, fandom: group.tagline || group.name.toUpperCase() } : null,
+    bundle: bundle
+      ? { id: bundle.id, slug: bundle.slug, name: bundle.name, price: Number(bundle.price), freeAddonIds }
+      : null,
     configuration,
     configurationJson,
     quantity,

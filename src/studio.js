@@ -58,6 +58,10 @@
     // Live prices from /api/catalog. Null until the request answers, so the bundled
     // src/options.js table keeps the page correct while it loads.
     let pricingTable = null;
+    // Bundle packages ("paketan") arrive with the same catalogue payload. No bundle selected
+    // means the standard base price with every add-on charged normally.
+    let availableBundles = [];
+    let activeBundle = null;
 
     const state = {
       base: {
@@ -140,6 +144,13 @@
 
         activeProduct = payload.product || activeProduct;
         pricingTable = payload.options || null;
+        // Only bundles that apply to this collection are offered; a group-scoped bundle from
+        // another collection never appears here.
+        availableBundles = (Array.isArray(payload.bundles) ? payload.bundles : [])
+          .filter((item) => item && item.isActive !== false)
+          .filter((item) => item.groupId == null || item.groupSlug === group.slug || Number(item.groupId) === Number(group.id));
+        if (activeBundle && !availableBundles.some((item) => item.id === activeBundle.id)) activeBundle = null;
+        renderBundleChoices();
         applyProduct(activeProduct);
         applyGroupLabels(catalog.artistFromGroup(group, index), activeMember);
         refreshPriceState();
@@ -196,6 +207,73 @@
       });
     }
 
+    function bundleFreeIds() {
+      if (!activeBundle || typeof pricing.freeAddonIds !== 'function') return [];
+      return pricing.freeAddonIds({
+        addonIds: state.addons.map((item) => item.id),
+        quota: activeBundle.freeAddonQuota,
+        allowedAddonKeys: activeBundle.allowedAddonKeys,
+      });
+    }
+
+    /** Shows every selected add-on the bundle covers as Rp 0 and renames its price label. */
+    function markFreeAddons(freeIds) {
+      $$('.addon-option').forEach((option) => {
+        const input = option.querySelector('input');
+        const label = option.querySelector('small');
+        const key = input ? input.dataset.addon : '';
+        if (!key || !label) return;
+        const free = freeIds.includes(key);
+        label.textContent = free ? 'Free (Included in Bundle)' : money(addonPrice(key));
+        option.classList.toggle('is-free', free);
+      });
+    }
+
+    function updateBundleNote() {
+      const note = $('#bundleNote');
+      const step = $('#bundleStep');
+      if (step) step.hidden = !availableBundles.length;
+      if (!note) return;
+      if (!activeBundle) {
+        note.hidden = true;
+        note.textContent = '';
+        return;
+      }
+      const quota = Number(activeBundle.freeAddonQuota) || 0;
+      note.hidden = false;
+      note.textContent = `${bundleFreeIds().length} of ${quota} free add-on${quota === 1 ? '' : 's'} used. Extra add-ons are charged normally.`;
+    }
+
+    function renderBundleChoices() {
+      const step = $('#bundleStep');
+      const container = $('#bundleChoices');
+      if (!step || !container) return;
+      if (!availableBundles.length) {
+        step.hidden = true;
+        container.innerHTML = '';
+        return;
+      }
+      step.hidden = false;
+
+      container.innerHTML = [null, ...availableBundles].map((item) => {
+        const selected = item ? Boolean(activeBundle) && activeBundle.id === item.id : !activeBundle;
+        const quota = item ? Number(item.freeAddonQuota) || 0 : 0;
+        const detail = item
+          ? `${money(item.price)} · ${quota} free add-on${quota === 1 ? '' : 's'}`
+          : 'Standard price · no bundle';
+        return `<button type="button" class="bundle-choice${selected ? ' selected' : ''}" data-bundle="${item ? item.id : ''}" aria-pressed="${selected}"><span>${escapeHtml(item ? item.name : 'No bundle')}<small>${detail}</small></span></button>`;
+      }).join('');
+
+      container.querySelectorAll('[data-bundle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const id = button.dataset.bundle ? Number(button.dataset.bundle) : null;
+          activeBundle = id ? availableBundles.find((item) => item.id === id) || null : null;
+          renderBundleChoices();
+          update();
+        });
+      });
+    }
+
     function renderPreview() {
       // The globally chosen silhouette drives both the 3D base and this flat fallback.
       const baseShapes = {
@@ -218,8 +296,11 @@
       $('#previewRing').setAttribute('stroke', state.clasp.id === 'black' ? '#151515' : '#aaa');
       $('#previewRing').setAttribute('stroke-width', state.clasp.id === 'black' ? '13' : '11');
       $('#previewCount').textContent = `${2 + state.addons.length + (state.initial ? 1 : 0)} PIECES`;
-      const quote = pricing.calculatePrice({ basePrice: state.base.price, addonPrices: state.addons.map((item) => item.price), claspPrice: state.clasp.price, personalizationPrice: state.initial ? addonPrice('initial') : 0, pricing: pricingTable || undefined, quantity: 1 });
+      const freeIds = bundleFreeIds();
+      const quote = pricing.calculatePrice({ basePrice: activeBundle ? Number(activeBundle.price) : state.base.price, addonPrices: state.addons.map((item) => (freeIds.includes(item.id) ? 0 : item.price)), claspPrice: state.clasp.price, personalizationPrice: state.initial ? addonPrice('initial') : 0, pricing: pricingTable || undefined, quantity: 1 });
       $('#builderPrice').textContent = money(quote.total);
+      markFreeAddons(freeIds);
+      updateBundleNote();
       return quote.total;
     }
 
@@ -288,6 +369,15 @@
           ? { slug: activeMember.slug, name: activeMember.name, designImageUrl: activeMember.designImageUrl || null }
           : null,
         baseModel: state.base.id,
+        bundle: activeBundle
+          ? {
+            id: activeBundle.id,
+            slug: activeBundle.slug,
+            name: activeBundle.name,
+            price: Number(activeBundle.price),
+            freeAddonQuota: Number(activeBundle.freeAddonQuota) || 0,
+          }
+          : null,
         configuration: {
           base: state.base,
           addons: state.addons,

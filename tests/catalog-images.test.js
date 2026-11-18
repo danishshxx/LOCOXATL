@@ -78,6 +78,8 @@ async function execute(sql, params = []) {
   if (/^SELECT .* FROM catalog_products/i.test(query)) return [[]];
   if (/^SELECT .* FROM pricing_options/i.test(query)) return [[]];
 
+  if (/FROM catalog_bundles/i.test(query)) return [[]];
+
   throw new Error(`Unexpected catalog image test SQL: ${query}`);
 }
 

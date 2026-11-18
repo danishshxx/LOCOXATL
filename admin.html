@@ -363,6 +363,7 @@
       <nav class="catalog-subtabs" id="artistSubtabs" role="tablist" aria-label="Artist management sections">
         <button type="button" class="catalog-subtab is-active" role="tab" aria-selected="true" aria-controls="artistPanelGroups" id="artistTabGroups" data-artist-tab="groups">Groups</button>
         <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="artistPanelMembers" id="artistTabMembers" data-artist-tab="members">Members</button>
+        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="artistPanelBundles" id="artistTabBundles" data-artist-tab="bundles">Bundles / Paketan</button>
       </nav>
 
       <div class="catalog-panel" id="artistPanelGroups" data-artist-panel="groups" role="tabpanel" aria-labelledby="artistTabGroups">
@@ -423,6 +424,34 @@
             </table>
           </div>
           <p class="catalog-source-note" id="artistMembersNote" role="status"></p>
+        </div>
+      </div>
+
+      <div class="catalog-panel" id="artistPanelBundles" data-artist-panel="bundles" role="tabpanel" aria-labelledby="artistTabBundles" hidden>
+        <div class="catalog-toolbar">
+          <button type="button" class="button button-dark button-small" id="addBundleBtn">+ Add Bundle</button>
+          <button type="button" class="button button-outline button-small" id="refreshBundlesBtn">Refresh</button>
+        </div>
+        <div class="admin-table-card">
+          <div class="table-wrap">
+            <table class="admin-orders-table catalog-table">
+              <thead>
+                <tr>
+                  <th>BUNDLE</th>
+                  <th>COLLECTION</th>
+                  <th>SLUG</th>
+                  <th>PRICE</th>
+                  <th>FREE ADD-ONS</th>
+                  <th>STORE</th>
+                  <th class="th-actions">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody id="bundlesBody">
+                <tr><td colspan="7" class="table-loading">Loading bundle packages...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="catalog-source-note" id="bundlesNote" role="status"></p>
         </div>
       </div>
     </section>
@@ -830,6 +859,63 @@
           <button type="button" class="text-link danger-link admin-modal-delete" id="artistMemberDelete" hidden>Delete member</button>
           <button type="button" class="button button-outline button-small" id="artistMemberFormCancel">Cancel</button>
           <button type="submit" class="button button-dark button-small" id="artistMemberFormSubmit">Save member</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Bundle package ("paketan") editor -->
+  <div class="admin-modal-backdrop" id="bundleModalBackdrop" hidden>
+    <div class="admin-modal" id="bundleModal" role="dialog" aria-modal="true" aria-labelledby="bundleModalTitle" tabindex="-1">
+      <div class="admin-modal-header">
+        <div>
+          <span class="eyebrow" id="bundleModalEyebrow">NEW BUNDLE</span>
+          <h2 id="bundleModalTitle">Add bundle</h2>
+        </div>
+        <button type="button" class="drawer-close-btn" id="bundleModalClose" aria-label="Close bundle form">✕</button>
+      </div>
+      <form id="bundleForm" class="admin-modal-form">
+        <input type="hidden" id="bundleFormId" />
+        <div class="admin-modal-row">
+          <label>Bundle name <input type="text" id="bundleName" maxlength="120" required placeholder="e.g. Duo Paket" autocomplete="off" /></label>
+          <label>Slug <input type="text" id="bundleSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
+        </div>
+        <div class="admin-modal-row">
+          <label>Collection <select id="bundleGroup"><option value="">Every collection</option></select></label>
+          <label>Bundle price (IDR) <input type="number" id="bundlePrice" min="0" step="1000" inputmode="numeric" required placeholder="60000" /></label>
+        </div>
+        <div class="admin-modal-row">
+          <label>Free add-ons included <input type="number" id="bundleQuota" min="0" max="20" step="1" inputmode="numeric" required /></label>
+          <label>Sort order <input type="number" id="bundleSortOrder" step="1" min="-9999" max="9999" /></label>
+        </div>
+        <label class="accounting-wide-field">Description <textarea id="bundleDescription" rows="2" maxlength="2000" placeholder="Shown with the bundle in the custom studio"></textarea></label>
+        <div class="bundle-addon-field">
+          <span class="catalog-field-label">Eligible add-ons</span>
+          <p class="catalog-image-note">Leave every box empty to allow any active add-on. The initial letter is never free.</p>
+          <div class="bundle-addon-choices" id="bundleAddonChoices"></div>
+        </div>
+        <div class="catalog-image-field">
+          <span class="catalog-field-label">Bundle image</span>
+          <div class="catalog-image-preview" id="bundleImagePreview" hidden>
+            <img id="bundleImageThumb" alt="Selected bundle image" />
+            <button type="button" class="text-link" id="bundleImageRemove">Remove image</button>
+          </div>
+          <label class="catalog-image-picker">
+            <input type="file" id="bundleImageInput" accept="image/png,image/jpeg,image/webp" />
+            <span>Choose an image (PNG, JPEG or WebP, up to 3 MB)</span>
+          </label>
+          <p class="catalog-image-note" id="bundleImageNote" role="status" hidden></p>
+        </div>
+        <label class="catalog-toggle-field">Visible in the studio
+          <span class="toggle-switch">
+            <input type="checkbox" id="bundleIsActive" checked />
+            <span class="toggle-track" aria-hidden="true"></span>
+          </span>
+        </label>
+        <p class="admin-auth-error" id="bundleFormError" role="alert" hidden></p>
+        <div class="admin-modal-actions">
+          <button type="button" class="button button-outline button-small" id="bundleFormCancel">Cancel</button>
+          <button type="submit" class="button button-dark button-small" id="bundleFormSubmit">Create bundle</button>
         </div>
       </form>
     </div>

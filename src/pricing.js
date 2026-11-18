@@ -41,13 +41,48 @@
     return Number.isFinite(price) && price >= 0 ? price : null;
   }
 
+  /**
+   * Which selected add-ons a bundle covers for free. The bundle's own allow-list decides
+   * eligibility (absent means any add-on), the quota caps how many are free, and the
+   * personalization "initial" add-on is never free because it is priced separately.
+   */
+  function freeAddonIds(input = {}) {
+    const quota = Number(input.quota);
+    if (!Number.isInteger(quota) || quota < 1) return [];
+    const allowed = Array.isArray(input.allowedAddonKeys) && input.allowedAddonKeys.length
+      ? new Set(input.allowedAddonKeys.map((key) => String(key).trim().toLowerCase()).filter(Boolean))
+      : null;
+
+    const free = [];
+    for (const id of Array.isArray(input.addonIds) ? input.addonIds : []) {
+      if (free.length >= quota) break;
+      const key = String(id == null ? '' : id).trim().toLowerCase();
+      if (!key || key === 'initial' || free.includes(key)) continue;
+      if (allowed && !allowed.has(key)) continue;
+      free.push(key);
+    }
+    return free;
+  }
+
   function calculatePrice(input = {}) {
     const table = normalizeTable(input.pricing || defaultTable());
+    // A bundle replaces the base price and covers up to its quota of eligible add-ons; every
+    // add-on outside the free set is still charged normally.
+    const bundle = input.bundle && typeof input.bundle === 'object' ? input.bundle : null;
+    const freeIds = bundle && Array.isArray(bundle.freeAddonIds)
+      ? new Set(bundle.freeAddonIds.map((key) => String(key).trim().toLowerCase()))
+      : null;
 
-    const basePrice = input.basePrice ?? 0;
+    const basePrice = bundle && bundle.price !== undefined && bundle.price !== null
+      ? Number(bundle.price)
+      : (input.basePrice ?? 0);
     const addonPrices = Array.isArray(input.addonIds)
-      ? input.addonIds.map((id) => priceOf(table.addons, id)).filter((price) => price !== null)
+      ? input.addonIds.map((id) => {
+        if (freeIds && freeIds.has(String(id == null ? '' : id).trim().toLowerCase())) return 0;
+        return priceOf(table.addons, id);
+      }).filter((price) => price !== null)
       : (input.addonPrices ?? []);
+
     const claspPrice = input.claspPrice ?? (input.claspId ? (priceOf(table.clasps, input.claspId) ?? 0) : 0);
     const personalizationPrice = input.personalizationPrice
       ?? (input.initial ? (priceOf(table.addons, 'initial') ?? 0) : 0);
@@ -70,5 +105,5 @@
     return { unitPrice, subtotal, total };
   }
 
-  return { calculatePrice, priceOf, normalizeTable };
+  return { calculatePrice, priceOf, normalizeTable, freeAddonIds };
 });

@@ -118,6 +118,8 @@ async function execute(sql, params = []) {
     return [pricing.map(withTimestamps)];
   }
 
+  if (/FROM catalog_bundles/i.test(query)) return [[]];
+
   throw new Error(`Unexpected catalog test SQL: ${query}`);
 }
 

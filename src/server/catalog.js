@@ -13,6 +13,7 @@ const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, 
 const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
 const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
+const BUNDLE_FIELDS = 'id, group_id, slug, name, description, bundle_price, free_addon_quota, allowed_addon_keys, image_url, is_active, sort_order, created_at, updated_at';
 
 // One shared keychain product: a single global base silhouette plus one shared base price row.
 // Member artwork (artist_members.design_image_url) is a design applied to this product, never a
@@ -309,6 +310,7 @@ function fallbackCatalog() {
     groups: staticGroups(),
     members: [],
     products: staticProducts(),
+    bundles: [],
     options,
     product: productFromOptions(DEFAULT_BASE_MODEL, options),
   };
@@ -427,6 +429,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
     const members = await loadMembers({ activeOnly });
     const products = await loadProductsForGroups(groups, { activeOnly });
     const options = await loadPricingTable({ activeOnly: true });
+    const bundles = await loadBundles({ activeOnly, groups });
     // The storefront needs to group members by slug, and the browser never sees ids it should not
     // need. Attaching groupSlug here keeps the client rendering logic free of id lookups.
     const slugById = new Map(groups.map((group) => [group.id, group.slug]));
@@ -436,7 +439,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
     }));
     const settingsRow = await loadProductSettingsRow();
     const product = productFromOptions(settingsRow ? settingsRow.base_model : DEFAULT_BASE_MODEL, options);
-    return { source: 'database', groups, members: membersWithGroup, products, options, product };
+    return { source: 'database', groups, members: membersWithGroup, products, bundles, options, product };
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return fallbackCatalog();
@@ -655,6 +658,273 @@ async function clearGroupImage(id, kind = 'cover') {
   await getPool().execute(`UPDATE catalog_groups SET ${column} = NULL WHERE id = ?`, [groupId]);
   await uploads.removeCatalogImage(previous);
   return getGroupById(groupId);
+}
+
+// ---------------------------------------------------------------------------
+// Bundle packages ("paketan")
+//
+// A bundle is a fixed price that covers up to `free_addon_quota` eligible add-ons for Rp 0.
+// `group_id` is null for a bundle available in every collection, and `allowed_addon_keys` is
+// null when any active add-on may be taken. A database that has not run migration 009 simply
+// has no bundles, so the storefront keeps its plain per-add-on pricing.
+// ---------------------------------------------------------------------------
+
+const MAX_BUNDLE_QUOTA = 20;
+
+function parseAllowedAddonKeys(value) {
+  if (value === null || value === undefined || value === '') return null;
+  let list = value;
+  if (typeof value === 'string') {
+    try {
+      list = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(list)) return null;
+  const keys = [...new Set(list.map((key) => cleanText(key, 64).toLowerCase()).filter(Boolean))];
+  return keys.length ? keys : null;
+}
+
+function mapBundle(row, group) {
+  return {
+    id: Number(row.id),
+    groupId: row.group_id === null || row.group_id === undefined ? null : Number(row.group_id),
+    groupSlug: group ? group.slug : null,
+    groupName: group ? group.name : null,
+    slug: row.slug,
+    name: row.name,
+    description: row.description || '',
+    price: Number(row.bundle_price) || 0,
+    freeAddonQuota: Number(row.free_addon_quota) || 0,
+    allowedAddonKeys: parseAllowedAddonKeys(row.allowed_addon_keys),
+    imageUrl: row.image_url || null,
+    isActive: Boolean(row.is_active),
+    sortOrder: Number(row.sort_order) || 0,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+function mapBundles(rows, groups) {
+  const byId = new Map((groups || []).map((group) => [Number(group.id), group]));
+  return rows.map((row) => mapBundle(row, row.group_id == null ? null : (byId.get(Number(row.group_id)) || null)));
+}
+
+async function queryBundleRows({ activeOnly = false } = {}) {
+  const [rows] = await getPool().execute(
+    `SELECT ${BUNDLE_FIELDS} FROM catalog_bundles ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY sort_order ASC, id ASC`,
+  );
+  return rows;
+}
+
+/**
+ * Bundles are optional in the same way members are: a database upgraded before migration 009
+ * has no table yet, which means "no bundles" rather than a broken catalogue.
+ */
+async function loadBundles({ activeOnly, groups }) {
+  try {
+    return mapBundles(await queryBundleRows({ activeOnly }), groups);
+  } catch (error) {
+    if (!isMissingDatabase(error)) throw error;
+    return [];
+  }
+}
+
+async function getBundleById(id) {
+  const bundleId = Number(id);
+  if (!Number.isSafeInteger(bundleId) || bundleId < 1) {
+    throw new CatalogError('invalid_id', 'Bundle id must be a positive integer.');
+  }
+  const [rows] = await getPool().execute(
+    `SELECT ${BUNDLE_FIELDS} FROM catalog_bundles WHERE id = ? LIMIT 1`,
+    [bundleId],
+  );
+  if (!rows.length) throw new CatalogError('bundle_not_found', 'Bundle package was not found.', 404);
+
+  let group = null;
+  if (rows[0].group_id != null) {
+    try {
+      group = await getGroupById(rows[0].group_id);
+    } catch {
+      group = null;
+    }
+  }
+  return mapBundle(rows[0], group);
+}
+
+async function listBundles() {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Bundle management requires the MySQL connection.', 503);
+  }
+  const groups = await queryGroups({ activeOnly: false });
+  return mapBundles(await queryBundleRows({ activeOnly: false }), groups);
+}
+
+function normalizeBundleInput(input = {}, { partial = false } = {}) {
+  const values = input && typeof input === 'object' ? input : {};
+  const result = {};
+
+  if (!partial || values.name !== undefined) {
+    const name = cleanText(values.name, MAX_NAME_LENGTH);
+    if (name.length < 2) throw new CatalogError('invalid_name', 'Bundle name must be at least 2 characters.');
+    result.name = name;
+  }
+
+  if (!partial || values.slug !== undefined) {
+    const rawSlug = cleanText(values.slug, MAX_SLUG_LENGTH);
+    const slug = slugify(rawSlug || result.name || '');
+    if (!slug) throw new CatalogError('invalid_slug', 'Bundle slug must contain letters or numbers.');
+    result.slug = slug;
+  }
+
+  if (!partial || values.bundlePrice !== undefined) {
+    result.bundlePrice = parsePrice(values.bundlePrice, 'bundlePrice');
+  }
+
+  if (values.freeAddonQuota !== undefined && values.freeAddonQuota !== null && values.freeAddonQuota !== '') {
+    const quota = Number(values.freeAddonQuota);
+    if (!Number.isInteger(quota) || quota < 0 || quota > MAX_BUNDLE_QUOTA) {
+      throw new CatalogError('invalid_quota', `freeAddonQuota must be a whole number between 0 and ${MAX_BUNDLE_QUOTA}.`);
+    }
+    result.freeAddonQuota = quota;
+  }
+
+  if (values.allowedAddonKeys !== undefined) result.allowedAddonKeys = parseAllowedAddonKeys(values.allowedAddonKeys);
+  if (values.description !== undefined) result.description = cleanMultiline(values.description, MAX_DESCRIPTION_LENGTH);
+  if (values.imageUrl !== undefined) result.imageUrl = normalizeImageInput(values.imageUrl);
+  if (values.groupId !== undefined) {
+    result.groupId = values.groupId === null || values.groupId === '' ? null : parseGroupId(values.groupId);
+  }
+  if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
+    result.sortOrder = parseSortOrder(values.sortOrder);
+  }
+  if (values.isActive !== undefined) {
+    if (typeof values.isActive !== 'boolean') {
+      throw new CatalogError('invalid_active', 'isActive must be a boolean.');
+    }
+    result.isActive = values.isActive;
+  }
+
+  return result;
+}
+
+async function nextBundleSortOrder() {
+  const [rows] = await getPool().execute('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM catalog_bundles');
+  return Number(rows[0] && rows[0].next_order) || 0;
+}
+
+async function createBundle(input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Bundle management requires the MySQL connection.', 503);
+  }
+
+  const values = normalizeBundleInput(input);
+  if (values.groupId) await getGroupById(values.groupId);
+  const sortOrder = values.sortOrder === undefined ? await nextBundleSortOrder() : values.sortOrder;
+
+  let imageUrl = null;
+  if (values.imageUrl && values.imageUrl.startsWith('data:image/')) {
+    imageUrl = await uploads.saveCatalogImage(`bundle-${values.slug}`, values.imageUrl);
+  } else if (values.imageUrl) {
+    imageUrl = values.imageUrl;
+  }
+
+  try {
+    const [result] = await getPool().execute(
+      `INSERT INTO catalog_bundles
+        (group_id, slug, name, description, bundle_price, free_addon_quota, allowed_addon_keys, image_url, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        values.groupId || null,
+        values.slug,
+        values.name,
+        values.description || '',
+        values.bundlePrice,
+        values.freeAddonQuota === undefined ? 1 : values.freeAddonQuota,
+        values.allowedAddonKeys ? JSON.stringify(values.allowedAddonKeys) : null,
+        imageUrl,
+        values.isActive === false ? 0 : 1,
+        sortOrder,
+      ],
+    );
+    return getBundleById(result.insertId);
+  } catch (error) {
+    if (imageUrl) await uploads.removeCatalogImage(imageUrl);
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('bundle_exists', 'A bundle with that slug already exists.', 409);
+    }
+    throw error;
+  }
+}
+
+async function updateBundle(id, input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Bundle management requires the MySQL connection.', 503);
+  }
+
+  const existing = await getBundleById(id);
+  const values = normalizeBundleInput(input, { partial: true });
+
+  const assignments = [];
+  const params = [];
+  if (values.name !== undefined) { assignments.push('name = ?'); params.push(values.name); }
+  if (values.slug !== undefined) { assignments.push('slug = ?'); params.push(values.slug); }
+  if (values.description !== undefined) { assignments.push('description = ?'); params.push(values.description); }
+  if (values.bundlePrice !== undefined) { assignments.push('bundle_price = ?'); params.push(values.bundlePrice); }
+  if (values.freeAddonQuota !== undefined) { assignments.push('free_addon_quota = ?'); params.push(values.freeAddonQuota); }
+  if (values.allowedAddonKeys !== undefined) {
+    assignments.push('allowed_addon_keys = ?');
+    params.push(values.allowedAddonKeys ? JSON.stringify(values.allowedAddonKeys) : null);
+  }
+  if (values.groupId !== undefined) {
+    if (values.groupId) await getGroupById(values.groupId);
+    assignments.push('group_id = ?');
+    params.push(values.groupId);
+  }
+  if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
+  if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
+
+  // Images are written before the row update so a failed upload never leaves a dangling URL.
+  const incomingImage = values.imageUrl;
+  const previousImage = existing.imageUrl;
+  let storedImage;
+  if (incomingImage !== undefined) {
+    if (incomingImage === null) {
+      assignments.push('image_url = NULL');
+      storedImage = null;
+    } else if (incomingImage.startsWith('data:image/')) {
+      storedImage = await uploads.saveCatalogImage(`bundle-${existing.id}`, incomingImage);
+      assignments.push('image_url = ?');
+      params.push(storedImage);
+    } else {
+      storedImage = incomingImage;
+      assignments.push('image_url = ?');
+      params.push(storedImage);
+    }
+  }
+
+  if (!assignments.length) {
+    throw new CatalogError('no_changes', 'Provide at least one field to update.');
+  }
+
+  try {
+    await getPool().execute(
+      `UPDATE catalog_bundles SET ${assignments.join(', ')} WHERE id = ?`,
+      [...params, existing.id],
+    );
+  } catch (error) {
+    if (storedImage && storedImage !== incomingImage) await uploads.removeCatalogImage(storedImage);
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('bundle_exists', 'That slug is already used by another bundle.', 409);
+    }
+    throw error;
+  }
+
+  if (incomingImage !== undefined && previousImage && previousImage !== storedImage) {
+    await uploads.removeCatalogImage(previousImage);
+  }
+  return getBundleById(existing.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1460,6 +1730,10 @@ module.exports = {
   deleteGroup,
   setGroupImage,
   clearGroupImage,
+  listBundles,
+  getBundleById,
+  createBundle,
+  updateBundle,
   listMembers,
   getMemberById,
   createMember,

@@ -19,7 +19,7 @@
 
   const member = order.member || null;
   const config = order.configuration || {};
-  const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name].filter(Boolean).join(' · ');
+  const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
   $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
   $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
   $('#summaryConfiguration').textContent = configText;
@@ -61,6 +61,7 @@
         artist: order.artist,
         member: order.member || undefined,
         product: order.product || undefined,
+        bundle: order.bundle || undefined,
         baseModel: order.baseModel || order.configuration?.base?.id,
         configuration: {
           base: config.base,
