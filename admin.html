@@ -90,7 +90,8 @@
     <nav class="admin-view-tabs section-wrap" id="adminViewTabs" aria-label="Dashboard views" role="tablist">
       <button type="button" class="admin-view-tab is-active" role="tab" aria-selected="true" aria-controls="viewOrders" id="tabOrders" data-view="orders">Orders</button>
       <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewAccounting" id="tabAccounting" data-view="accounting">Cashbook &amp; Reports</button>
-      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewCatalog" id="tabCatalog" data-view="catalog">Catalog</button>
+      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewArtists" id="tabArtists" data-view="artists">Artists &amp; Groups</button>
+      <button type="button" class="admin-view-tab" role="tab" aria-selected="false" aria-controls="viewProduct" id="tabProduct" data-view="product">Product Setup</button>
     </nav>
 
     <div class="admin-view" id="viewOrders" role="tabpanel" aria-labelledby="tabOrders" data-view-panel="orders">
@@ -350,25 +351,24 @@
       </section>
     </section>
 
-    <section class="section-wrap admin-catalog-section" id="viewCatalog" data-view-panel="catalog" role="tabpanel" aria-labelledby="tabCatalog" hidden>
+    <section class="section-wrap admin-artists-section" id="viewArtists" data-view-panel="artists" role="tabpanel" aria-labelledby="tabArtists" hidden>
       <div class="admin-section-heading">
         <div>
-          <span class="eyebrow">STOREFRONT CURATION</span>
-          <h1>Catalog</h1>
-          <p class="accounting-intro">Publish collections, design the products inside them, and price the studio options. Everything here feeds the storefront and the order pricing directly.</p>
+          <span class="eyebrow">ARTIST &amp; GROUP MANAGEMENT</span>
+          <h1>Artists &amp; Groups</h1>
+          <p class="accounting-intro">Curate the collection hero and the people inside each group. Everything here is served to the storefront through the public catalogue; nothing is hardcoded in the customer pages.</p>
         </div>
       </div>
 
-      <nav class="catalog-subtabs" id="catalogSubtabs" role="tablist" aria-label="Catalog sections">
-        <button type="button" class="catalog-subtab is-active" role="tab" aria-selected="true" aria-controls="catalogPanelGroups" id="catalogTabGroups" data-catalog-tab="groups">Collections</button>
-        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="catalogPanelProducts" id="catalogTabProducts" data-catalog-tab="products">Product Designs</button>
-        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="catalogPanelPricing" id="catalogTabPricing" data-catalog-tab="pricing">Pricing</button>
+      <nav class="catalog-subtabs" id="artistSubtabs" role="tablist" aria-label="Artist management sections">
+        <button type="button" class="catalog-subtab is-active" role="tab" aria-selected="true" aria-controls="artistPanelGroups" id="artistTabGroups" data-artist-tab="groups">Groups</button>
+        <button type="button" class="catalog-subtab" role="tab" aria-selected="false" aria-controls="artistPanelMembers" id="artistTabMembers" data-artist-tab="members">Members</button>
       </nav>
 
-      <div class="catalog-panel" id="catalogPanelGroups" data-catalog-panel="groups" role="tabpanel" aria-labelledby="catalogTabGroups">
+      <div class="catalog-panel" id="artistPanelGroups" data-artist-panel="groups" role="tabpanel" aria-labelledby="artistTabGroups">
         <div class="catalog-toolbar">
-          <button type="button" class="button button-dark button-small" id="addGroupBtn">+ Add Group</button>
-          <button type="button" class="button button-outline button-small" id="refreshCatalogBtn">Refresh</button>
+          <button type="button" class="button button-dark button-small" id="addArtistGroupBtn">+ Add Group</button>
+          <button type="button" class="button button-outline button-small" id="refreshArtistGroupsBtn">Refresh</button>
         </div>
         <div class="admin-table-card">
           <div class="table-wrap">
@@ -378,29 +378,30 @@
                   <th class="th-order">ORDER</th>
                   <th>GROUP</th>
                   <th>SLUG</th>
-                  <th>TAGLINE</th>
+                  <th>EYEBROW</th>
+                  <th>IMAGES</th>
                   <th>STORE</th>
                   <th class="th-actions">ACTIONS</th>
                 </tr>
               </thead>
-              <tbody id="catalogGroupsBody">
-                <tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>
+              <tbody id="artistGroupsBody">
+                <tr><td colspan="7" class="table-loading">Loading artist groups...</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="catalog-source-note" id="catalogSourceNote" role="status"></p>
+          <p class="catalog-source-note" id="artistGroupsNote" role="status"></p>
         </div>
       </div>
 
-      <div class="catalog-panel" id="catalogPanelProducts" data-catalog-panel="products" role="tabpanel" aria-labelledby="catalogTabProducts" hidden>
+      <div class="catalog-panel" id="artistPanelMembers" data-artist-panel="members" role="tabpanel" aria-labelledby="artistTabMembers" hidden>
         <div class="catalog-toolbar">
-          <label class="catalog-select-field">Collection
-            <select id="productGroupFilter">
+          <label class="catalog-select-field">Group
+            <select id="memberGroupFilter">
               <option value="">All groups</option>
             </select>
           </label>
-          <button type="button" class="button button-dark button-small" id="addProductBtn">+ Add Product Design</button>
-          <button type="button" class="button button-outline button-small" id="refreshProductsBtn">Refresh</button>
+          <button type="button" class="button button-dark button-small" id="addMemberBtn">+ Add Member</button>
+          <button type="button" class="button button-outline button-small" id="refreshMembersBtn">Refresh</button>
         </div>
         <div class="admin-table-card">
           <div class="table-wrap">
@@ -408,41 +409,72 @@
               <thead>
                 <tr>
                   <th class="th-order">ORDER</th>
-                  <th>DESIGN</th>
-                  <th>COLLECTION</th>
-                  <th>3D TEMPLATE</th>
-                  <th>BASE PRICE</th>
+                  <th>MEMBER</th>
+                  <th>GROUP</th>
+                  <th>SLUG</th>
+                  <th>ARTWORK</th>
                   <th>STORE</th>
                   <th class="th-actions">ACTIONS</th>
                 </tr>
               </thead>
-              <tbody id="catalogProductsBody">
-                <tr><td colspan="7" class="table-loading">Loading product designs...</td></tr>
+              <tbody id="artistMembersBody">
+                <tr><td colspan="7" class="table-loading">Loading group members...</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="catalog-source-note" id="productSourceNote" role="status"></p>
+          <p class="catalog-source-note" id="artistMembersNote" role="status"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-wrap admin-product-section" id="viewProduct" data-view-panel="product" role="tabpanel" aria-labelledby="tabProduct" hidden>
+      <div class="admin-section-heading">
+        <div>
+          <span class="eyebrow">ONE KEYCHAIN · SHARED SETTINGS</span>
+          <h1>Product Setup</h1>
+          <p class="accounting-intro">LOCOXATL sells one keychain. Choose the single base silhouette and shared base price, then price the universal add-ons, initial and clasp. Every member design uses these settings.</p>
+        </div>
+        <div class="heading-actions">
+          <button type="button" class="button button-outline button-small" id="refreshProductSettingsBtn">Refresh</button>
         </div>
       </div>
 
-      <div class="catalog-panel" id="catalogPanelPricing" data-catalog-panel="pricing" role="tabpanel" aria-labelledby="catalogTabPricing" hidden>
-        <div class="admin-table-card">
-          <div class="table-wrap">
-            <table class="admin-orders-table pricing-table">
-              <thead>
-                <tr>
-                  <th>OPTION</th>
-                  <th>KEY</th>
-                  <th>PRICE (IDR)</th>
-                  <th>STORE</th>
-                </tr>
-              </thead>
-              <tbody id="pricingBody">
-                <tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>
-              </tbody>
-            </table>
+      <div class="admin-table-card product-settings-card">
+        <div class="card-heading"><span>SHARED BASE PRODUCT</span><span id="productSettingsNote" role="status"></span></div>
+        <form id="productSettingsForm" class="product-settings-form">
+          <label>Base silhouette
+            <select id="baseModelSelect" required>
+              <option value="heart">Heart</option>
+              <option value="star">Star</option>
+              <option value="bow">Ribbon</option>
+            </select>
+          </label>
+          <label>Base price (IDR)
+            <input type="number" id="basePriceInput" min="0" step="1000" inputmode="numeric" required placeholder="45000" />
+          </label>
+          <div class="product-settings-actions">
+            <button type="submit" class="button button-dark button-small" id="saveProductSettingsBtn">Save base product</button>
           </div>
-          <p class="catalog-source-note" id="pricingNote" role="status"></p>
+        </form>
+        <p class="catalog-source-note">Changing the silhouette applies to every member immediately; customers cannot switch it. Member artwork is managed in Artists &amp; Groups → Members.</p>
+      </div>
+
+      <div class="admin-table-card">
+        <div class="card-heading"><span>UNIVERSAL ADD-ONS, INITIAL &amp; CLASP</span><span id="pricingNote" role="status"></span></div>
+        <div class="table-wrap">
+          <table class="admin-orders-table pricing-table">
+            <thead>
+              <tr>
+                <th>OPTION</th>
+                <th>KEY</th>
+                <th>PRICE (IDR)</th>
+                <th>STORE</th>
+              </tr>
+            </thead>
+            <tbody id="pricingBody">
+              <tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>
+            </tbody>
+          </table>
         </div>
         <div class="catalog-toolbar catalog-toolbar-end">
           <button type="button" class="button button-outline button-small" id="refreshPricingBtn">Reload</button>
@@ -650,95 +682,154 @@
     </div>
   </div>
 
-  <!-- Catalog group editor -->
-  <div class="admin-modal-backdrop" id="groupModalBackdrop" hidden>
-    <div class="admin-modal" id="groupModal" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
+  <!-- Artist group editor: identity, presentation, imagery, visibility, ordering -->
+  <div class="admin-modal-backdrop" id="artistGroupModalBackdrop" hidden>
+    <div class="admin-modal admin-modal-wide" id="artistGroupModal" role="dialog" aria-modal="true" aria-labelledby="artistGroupModalTitle" tabindex="-1">
       <div class="admin-modal-header">
         <div>
-          <span class="eyebrow" id="groupModalEyebrow">NEW COLLECTION</span>
-          <h2 id="groupModalTitle">Add group</h2>
+          <span class="eyebrow" id="artistGroupModalEyebrow">NEW GROUP</span>
+          <h2 id="artistGroupModalTitle">Add group</h2>
         </div>
-        <button type="button" class="drawer-close-btn" id="groupModalClose" aria-label="Close group form">✕</button>
+        <button type="button" class="drawer-close-btn" id="artistGroupModalClose" aria-label="Close group form">✕</button>
       </div>
-      <form id="groupForm" class="admin-modal-form">
-        <input type="hidden" id="groupFormId" />
-        <label>Group name <input type="text" id="groupName" maxlength="120" required placeholder="e.g. TWICE" autocomplete="off" /></label>
-        <label>Slug <input type="text" id="groupSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
-        <label>Tagline / fandom <input type="text" id="groupTagline" maxlength="255" placeholder="e.g. ONCE" autocomplete="off" /></label>
-        <label class="accounting-wide-field">Description <textarea id="groupDescription" rows="3" maxlength="2000" placeholder="Shown on the collection page"></textarea></label>
-        <div class="catalog-image-field">
-          <span class="catalog-field-label">Card image</span>
-          <div class="catalog-image-preview" id="groupImagePreview" hidden>
-            <img id="groupImageThumb" alt="Selected card image" />
-            <button type="button" class="text-link" id="groupImageRemove">Remove image</button>
-          </div>
-          <label class="catalog-image-picker">
-            <input type="file" id="groupImageInput" accept="image/png,image/jpeg,image/webp" />
-            <span>Choose an image — PNG, JPEG or WebP, up to 3 MB</span>
-          </label>
-          <p class="catalog-image-note" id="groupImageNote" role="status"></p>
+      <form id="artistGroupForm" class="admin-modal-form">
+        <input type="hidden" id="artistGroupFormId" />
+        <div class="admin-modal-row">
+          <label>Group name <input type="text" id="artistGroupName" maxlength="120" required placeholder="e.g. TWICE" autocomplete="off" /></label>
+          <label>Slug <input type="text" id="artistGroupSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
         </div>
         <div class="admin-modal-row">
-          <label>Sort order <input type="number" id="groupSortOrder" step="1" min="-9999" max="9999" /></label>
+          <label>Eyebrow label <input type="text" id="artistGroupEyebrow" maxlength="120" placeholder="e.g. ONCE / ARTIST COLLECTION" autocomplete="off" /></label>
+          <label>Tagline / fandom <input type="text" id="artistGroupTagline" maxlength="255" placeholder="e.g. ONCE" autocomplete="off" /></label>
+        </div>
+        <label class="accounting-wide-field">Description <textarea id="artistGroupDescription" rows="3" maxlength="2000" placeholder="Shown on the collection page"></textarea></label>
+
+        <div class="artist-image-grid">
+          <div class="catalog-image-field">
+            <span class="catalog-field-label">Collection cover image</span>
+            <div class="catalog-image-preview" id="artistCoverPreview" hidden>
+              <img id="artistCoverThumb" alt="Selected collection cover" />
+              <button type="button" class="text-link" id="artistCoverRemove">Remove image</button>
+            </div>
+            <label class="catalog-image-picker">
+              <input type="file" id="artistCoverInput" accept="image/png,image/jpeg,image/webp" />
+              <span>Choose a cover — PNG, JPEG or WebP, up to 3 MB</span>
+            </label>
+            <label class="artist-focal-field">Cover focal position
+              <select id="artistCoverFocal">
+                <option value="50% 50%">Centre</option>
+                <option value="50% 20%">Upper centre</option>
+                <option value="50% 80%">Lower centre</option>
+                <option value="20% 50%">Left</option>
+                <option value="80% 50%">Right</option>
+                <option value="20% 20%">Top left</option>
+                <option value="80% 20%">Top right</option>
+                <option value="20% 80%">Bottom left</option>
+                <option value="80% 80%">Bottom right</option>
+              </select>
+            </label>
+            <p class="catalog-image-note" id="artistCoverNote" role="status" hidden></p>
+          </div>
+
+          <div class="catalog-image-field">
+            <span class="catalog-field-label">Member-selection hero image</span>
+            <div class="catalog-image-preview" id="artistHeroPreview" hidden>
+              <img id="artistHeroThumb" alt="Selected member-selection hero" />
+              <button type="button" class="text-link" id="artistHeroRemove">Remove image</button>
+            </div>
+            <label class="catalog-image-picker">
+              <input type="file" id="artistHeroInput" accept="image/png,image/jpeg,image/webp" />
+              <span>Choose a hero — PNG, JPEG or WebP, up to 3 MB</span>
+            </label>
+            <label class="artist-focal-field">Hero focal position
+              <select id="artistHeroFocal">
+                <option value="50% 50%">Centre</option>
+                <option value="50% 20%">Upper centre</option>
+                <option value="50% 80%">Lower centre</option>
+                <option value="20% 50%">Left</option>
+                <option value="80% 50%">Right</option>
+                <option value="20% 20%">Top left</option>
+                <option value="80% 20%">Top right</option>
+                <option value="20% 80%">Bottom left</option>
+                <option value="80% 80%">Bottom right</option>
+              </select>
+            </label>
+            <p class="catalog-image-note" id="artistHeroNote" role="status" hidden></p>
+          </div>
+        </div>
+
+        <div class="admin-modal-row">
+          <label>Sort order <input type="number" id="artistGroupSortOrder" step="1" min="-9999" max="9999" /></label>
           <label class="catalog-toggle-field">Visible on storefront
             <span class="toggle-switch">
-              <input type="checkbox" id="groupIsActive" checked />
+              <input type="checkbox" id="artistGroupIsActive" checked />
               <span class="toggle-track" aria-hidden="true"></span>
             </span>
           </label>
         </div>
-        <p class="admin-auth-error" id="groupFormError" role="alert" hidden></p>
+        <p class="admin-auth-error" id="artistGroupFormError" role="alert" hidden></p>
         <div class="admin-modal-actions">
-          <button type="button" class="button button-outline button-small" id="groupFormCancel">Cancel</button>
-          <button type="submit" class="button button-dark button-small" id="groupFormSubmit">Save group</button>
+          <button type="button" class="text-link danger-link admin-modal-delete" id="artistGroupDelete" hidden>Delete group</button>
+          <button type="button" class="button button-outline button-small" id="artistGroupFormCancel">Cancel</button>
+          <button type="submit" class="button button-dark button-small" id="artistGroupFormSubmit">Save group</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Product design editor -->
-  <div class="admin-modal-backdrop" id="productModalBackdrop" hidden>
-    <div class="admin-modal" id="productModal" role="dialog" aria-modal="true" aria-labelledby="productModalTitle" tabindex="-1">
+  <!-- Group member editor -->
+  <div class="admin-modal-backdrop" id="artistMemberModalBackdrop" hidden>
+    <div class="admin-modal" id="artistMemberModal" role="dialog" aria-modal="true" aria-labelledby="artistMemberModalTitle" tabindex="-1">
       <div class="admin-modal-header">
         <div>
-          <span class="eyebrow" id="productModalEyebrow">NEW DESIGN</span>
-          <h2 id="productModalTitle">Add product design</h2>
+          <span class="eyebrow" id="artistMemberModalEyebrow">NEW MEMBER</span>
+          <h2 id="artistMemberModalTitle">Add member</h2>
         </div>
-        <button type="button" class="drawer-close-btn" id="productModalClose" aria-label="Close product form">✕</button>
+        <button type="button" class="drawer-close-btn" id="artistMemberModalClose" aria-label="Close member form">✕</button>
       </div>
-      <form id="productForm" class="admin-modal-form">
-        <input type="hidden" id="productFormId" />
-        <label>Design name <input type="text" id="productName" maxlength="120" required placeholder="e.g. Cloud Heart" autocomplete="off" /></label>
-        <label>Collection <select id="productGroup" required></select></label>
-        <label>Slug <input type="text" id="productSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
-        <label>3D template <select id="productTemplate"></select></label>
-        <label>Base price (Rp) <input type="number" id="productBasePrice" min="0" step="1000" required placeholder="45000" /></label>
-        <label class="accounting-wide-field">Description <textarea id="productDescription" rows="3" maxlength="2000" placeholder="Shown on the collection page"></textarea></label>
+      <form id="artistMemberForm" class="admin-modal-form">
+        <input type="hidden" id="artistMemberFormId" />
+        <label>Member name <input type="text" id="artistMemberName" maxlength="120" required placeholder="e.g. Jisoo" autocomplete="off" /></label>
+        <label>Parent group <select id="artistMemberGroup" required></select></label>
+        <label>Slug <input type="text" id="artistMemberSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
         <div class="catalog-image-field">
-          <span class="catalog-field-label">Design image</span>
-          <div class="catalog-image-preview" id="productImagePreview" hidden>
-            <img id="productImageThumb" alt="Selected design image" />
-            <button type="button" class="text-link" id="productImageRemove">Remove image</button>
+          <span class="catalog-field-label">Portrait image</span>
+          <div class="catalog-image-preview" id="artistPortraitPreview" hidden>
+            <img id="artistPortraitThumb" alt="Selected member portrait" />
+            <button type="button" class="text-link" id="artistPortraitRemove">Remove image</button>
           </div>
           <label class="catalog-image-picker">
-            <input type="file" id="productImageInput" accept="image/png,image/jpeg,image/webp" />
-            <span>Choose an image — PNG, JPEG or WebP, up to 3 MB</span>
+            <input type="file" id="artistPortraitInput" accept="image/png,image/jpeg,image/webp" />
+            <span>Choose a portrait — PNG, JPEG or WebP, up to 3 MB</span>
           </label>
-          <p class="catalog-image-note" id="productImageNote" role="status"></p>
+          <p class="catalog-image-note" id="artistPortraitNote" role="status" hidden></p>
+        </div>
+        <div class="catalog-image-field">
+          <span class="catalog-field-label">Keychain artwork (charm face)</span>
+          <div class="catalog-image-preview" id="artistDesignPreview" hidden>
+            <img id="artistDesignThumb" alt="Selected member keychain artwork" />
+            <button type="button" class="text-link" id="artistDesignRemove">Remove image</button>
+          </div>
+          <label class="catalog-image-picker">
+            <input type="file" id="artistDesignInput" accept="image/png,image/jpeg,image/webp" />
+            <span>Choose the charm artwork — PNG, JPEG or WebP, up to 3 MB</span>
+          </label>
+          <p class="catalog-image-note" id="artistDesignNote" role="status" hidden></p>
         </div>
         <div class="admin-modal-row">
-          <label>Sort order <input type="number" id="productSortOrder" step="1" min="-9999" max="9999" /></label>
+          <label>Sort order <input type="number" id="artistMemberSortOrder" step="1" min="-9999" max="9999" /></label>
           <label class="catalog-toggle-field">Visible on storefront
             <span class="toggle-switch">
-              <input type="checkbox" id="productIsActive" checked />
+              <input type="checkbox" id="artistMemberIsActive" checked />
               <span class="toggle-track" aria-hidden="true"></span>
             </span>
           </label>
         </div>
-        <p class="admin-auth-error" id="productFormError" role="alert" hidden></p>
+        <p class="admin-auth-error" id="artistMemberFormError" role="alert" hidden></p>
         <div class="admin-modal-actions">
-          <button type="button" class="button button-outline button-small" id="productFormCancel">Cancel</button>
-          <button type="submit" class="button button-dark button-small" id="productFormSubmit">Save design</button>
+          <button type="button" class="text-link danger-link admin-modal-delete" id="artistMemberDelete" hidden>Delete member</button>
+          <button type="button" class="button button-outline button-small" id="artistMemberFormCancel">Cancel</button>
+          <button type="submit" class="button button-dark button-small" id="artistMemberFormSubmit">Save member</button>
         </div>
       </form>
     </div>

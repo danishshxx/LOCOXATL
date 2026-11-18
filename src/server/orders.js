@@ -101,7 +101,8 @@ async function createOrder(payload) {
         priceAdjusted: order.priceAdjusted,
         submittedTotal: order.submittedTotal,
         customer: order.customer,
-        product: { slug: order.product.slug, name: order.product.name },
+        product: order.product ? { slug: order.product.slug, name: order.product.name } : null,
+        member: order.member || null,
         artist: order.artist,
         configuration: order.configuration,
       };

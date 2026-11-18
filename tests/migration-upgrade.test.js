@@ -13,6 +13,7 @@ process.env.DB_USER = 'migration-upgrade-test';
 process.env.DB_NAME = 'migration_upgrade_test';
 
 const statements = [];
+let productGroupDeleteRule = 'CASCADE';
 
 function respond(sql, params) {
   const query = sql.replace(/\s+/g, ' ').trim();
@@ -27,6 +28,18 @@ function respond(sql, params) {
       return [[{ INDEX_NAME: 'uq_cashbook_order_entry_type' }]];
     }
     return [[]];
+  }
+  if (/FROM INFORMATION_SCHEMA\.KEY_COLUMN_USAGE/i.test(query)) {
+    return [[{
+      constraintName: 'fk_catalog_product_group',
+      deleteRule: productGroupDeleteRule,
+    }]];
+  }
+  if (
+    /^ALTER TABLE catalog_products\b/i.test(query)
+    && /ON DELETE RESTRICT/i.test(query)
+  ) {
+    productGroupDeleteRule = 'RESTRICT';
   }
   return [[]];
 }
@@ -86,6 +99,56 @@ test('a 002 database gets a supporting index before the legacy cashbook key is d
     addIndexAt < dropIndexAt,
     'the supporting index must exist before the drop, otherwise MariaDB rejects it with "needed in a foreign key constraint"',
   );
+});
+
+test('catalog product group FK migration changes CASCADE to RESTRICT idempotently', async () => {
+  statements.length = 0;
+  productGroupDeleteRule = 'CASCADE';
+
+  const firstResult = await runAdditiveMigrations();
+  assert.equal(firstResult.success, true);
+
+  const firstRunAdd = statements.find((entry) =>
+    /^ALTER TABLE catalog_products\b/i.test(entry.sql)
+    && /ADD CONSTRAINT fk_catalog_product_group_restrict_007/i.test(entry.sql)
+    && /ON DELETE RESTRICT/i.test(entry.sql),
+  );
+  const firstRunDrop = statements.find((entry) =>
+    /^ALTER TABLE catalog_products\b/i.test(entry.sql) && /DROP FOREIGN KEY/i.test(entry.sql),
+  );
+  assert.ok(firstRunAdd, 'a restrictive FK must be added before removing the cascading FK');
+  assert.ok(firstRunDrop, 'the old cascading FK must be removed');
+  assert.ok(
+    statements.indexOf(firstRunAdd) < statements.indexOf(firstRunDrop),
+    'the RESTRICT FK must exist before the cascading FK is removed',
+  );
+  assert.equal(productGroupDeleteRule, 'RESTRICT');
+
+  statements.length = 0;
+  const secondResult = await runAdditiveMigrations();
+  assert.equal(secondResult.success, true);
+  assert.equal(productGroupDeleteRule, 'RESTRICT');
+  assert.ok(
+    !statements.some((entry) =>
+      /^ALTER TABLE catalog_products\b/i.test(entry.sql)
+      && (/DROP FOREIGN KEY/i.test(entry.sql) || /ADD CONSTRAINT fk_catalog_product_group_restrict_007/i.test(entry.sql)),
+    ),
+    'a second run must not replace an already-RESTRICT FK',
+  );
+});
+
+test('007 SQL migration converts the catalog product FK to RESTRICT idempotently', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const sql = fs.readFileSync(
+    path.join(__dirname, '..', 'database', 'migrations', '007_catalog_product_group_restrict.sql'),
+    'utf8',
+  );
+
+  assert.match(sql, /INFORMATION_SCHEMA\.(?:KEY_COLUMN_USAGE|REFERENTIAL_CONSTRAINTS)/i);
+  assert.match(sql, /fk_catalog_product_group/i);
+  assert.match(sql, /ON DELETE RESTRICT/i);
+  assert.doesNotMatch(sql, /DROP TABLE|TRUNCATE/i, '007 must preserve tables and rows');
 });
 
 test('the SQL migration follows the same order as the JavaScript migration', () => {

@@ -1,4 +1,4 @@
-const { isConfigured, checkConnection } = require('./db');
+const { isConfigured, checkConnection, getPool } = require('./db');
 const {
   createOrder,
   getOrderByNumber,
@@ -126,14 +126,38 @@ function readJsonBody(request, { maxBytes = MAX_BODY_BYTES } = {}) {
 }
 
 function databaseUnavailable(response, error) {
+  const missingTables = Array.isArray(error && error.missingTables) ? error.missingTables : [];
   sendJson(response, 503, {
     error: 'database_unavailable',
-    message: 'The order could not be stored because the MySQL connection is not available.',
+    message: 'The MySQL connection is not available.',
     detail: error.code === 'DB_NOT_CONFIGURED'
       ? `Missing environment variables: ${(error.missing || []).join(', ')}.`
-      : 'Check the server database configuration and logs.',
-    hint: 'Configure .env from .env.example, import database/schema.sql, then retry.',
+      : (missingTables.length
+        ? `Connected, but required tables are missing: ${missingTables.join(', ')}.`
+        : 'Check the server database configuration and logs.'),
+    ...(missingTables.length ? { missingTables } : {}),
+    hint: missingTables.length
+      ? 'Run "npm run db:migrate" to create the missing tables.'
+      : 'Configure .env from .env.example, import database/schema.sql, then retry.',
   });
+}
+
+const REQUIRED_TABLES = [
+  'orders',
+  'order_items',
+  'catalog_groups',
+  'artist_members',
+  'pricing_options',
+  'product_settings',
+];
+
+async function missingRequiredTables() {
+  const pool = getPool();
+  const [rows] = await pool.query(
+    'SELECT TABLE_NAME AS tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE()',
+  );
+  const present = new Set(rows.map((row) => String(row.tableName).toLowerCase()));
+  return REQUIRED_TABLES.filter((table) => !present.has(table));
 }
 
 function mapError(response, error) {
@@ -198,17 +222,31 @@ async function handleApiRequest(request, response, url) {
       }
       const configured = isConfigured();
       let connected = false;
+      let schemaReady = false;
+      let missingTables = [];
       let message = 'MySQL is not configured.';
       if (configured) {
         try {
           connected = await checkConnection();
-          message = connected ? 'MySQL connection is healthy.' : 'MySQL connection failed.';
+          if (connected) {
+            try {
+              missingTables = await missingRequiredTables();
+              schemaReady = missingTables.length === 0;
+              message = schemaReady
+                ? 'MySQL connection is healthy and the schema is ready.'
+                : `MySQL is connected, but these tables are missing: ${missingTables.join(', ')}.`;
+            } catch {
+              message = 'MySQL is connected, but the schema could not be inspected.';
+            }
+          } else {
+            message = 'MySQL connection failed.';
+          }
         } catch (error) {
           message = 'MySQL connection failed.';
         }
       }
       sendJson(response, connected ? 200 : 503, {
-        database: { configured, connected, message },
+        database: { configured, connected, schemaReady, missingTables, message },
         api: { version: 1 },
       });
       return true;
@@ -228,8 +266,8 @@ async function handleApiRequest(request, response, url) {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
         return true;
       }
-      const { source, groups, products, options } = await serverCatalog.loadCatalog({ activeOnly: true });
-      sendJson(response, 200, { ok: true, source, groups, products, options });
+      const { source, groups, members, products, options, product } = await serverCatalog.loadCatalog({ activeOnly: true });
+      sendJson(response, 200, { ok: true, source, groups, members, products, options, product });
       return true;
     }
 
@@ -395,6 +433,23 @@ async function handleApiRequest(request, response, url) {
         return true;
       }
 
+      // GET/PATCH /api/admin/product-settings (single shared model + base price)
+      if (segments.length === 3 && segments[2] === 'product-settings') {
+        if (request.method === 'GET') {
+          const product = await serverCatalog.getProductSettings();
+          sendJson(response, 200, { ok: true, product });
+          return true;
+        }
+        if (request.method === 'PATCH') {
+          const body = await readJsonBody(request);
+          const product = await serverCatalog.updateProductSettings(body);
+          sendJson(response, 200, { ok: true, product });
+          return true;
+        }
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, PATCH' });
+        return true;
+      }
+
       if (segments[2] === 'catalog' && segments[3] === 'groups') {
         if (segments.length === 4) {
           if (request.method === 'GET') {
@@ -403,7 +458,7 @@ async function handleApiRequest(request, response, url) {
             return true;
           }
           if (request.method === 'POST') {
-            const body = await readJsonBody(request);
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
             const group = await serverCatalog.createGroup(body);
             sendJson(response, 201, { ok: true, group });
             return true;
@@ -413,26 +468,32 @@ async function handleApiRequest(request, response, url) {
         }
 
         if (segments.length === 5) {
-          if (request.method !== 'PATCH') {
-            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
-            return true;
-          }
-          const body = await readJsonBody(request);
-          const group = await serverCatalog.updateGroup(segments[4], body);
-          sendJson(response, 200, { ok: true, group });
-          return true;
-        }
-
-        // POST/DELETE /api/admin/catalog/groups/:id/image
-        if (segments.length === 6 && segments[5] === 'image') {
-          if (request.method === 'POST') {
+          if (request.method === 'PATCH') {
             const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
-            const group = await serverCatalog.setGroupImage(segments[4], body.dataUrl);
+            const group = await serverCatalog.updateGroup(segments[4], body);
             sendJson(response, 200, { ok: true, group });
             return true;
           }
           if (request.method === 'DELETE') {
-            const group = await serverCatalog.clearGroupImage(segments[4]);
+            const result = await serverCatalog.deleteGroup(segments[4]);
+            sendJson(response, 200, { ok: true, ...result });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH, DELETE' });
+          return true;
+        }
+
+        // POST/DELETE /api/admin/catalog/groups/:id/image[?kind=hero]
+        if (segments.length === 6 && segments[5] === 'image') {
+          const kind = url.searchParams.get('kind') === 'hero' ? 'hero' : 'cover';
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const group = await serverCatalog.setGroupImage(segments[4], body.dataUrl, kind);
+            sendJson(response, 200, { ok: true, group });
+            return true;
+          }
+          if (request.method === 'DELETE') {
+            const group = await serverCatalog.clearGroupImage(segments[4], kind);
             sendJson(response, 200, { ok: true, group });
             return true;
           }
@@ -441,6 +502,44 @@ async function handleApiRequest(request, response, url) {
         }
 
         sendJson(response, 404, { error: 'not_found', message: 'Unknown catalog route.' });
+        return true;
+      }
+
+      // GET/POST /api/admin/catalog/members  ·  PATCH/DELETE /api/admin/catalog/members/:id
+      if (segments[2] === 'catalog' && segments[3] === 'members') {
+        if (segments.length === 4) {
+          if (request.method === 'GET') {
+            const members = await serverCatalog.listMembers({ groupId: url.searchParams.get('groupId') });
+            sendJson(response, 200, { ok: true, members });
+            return true;
+          }
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const member = await serverCatalog.createMember(body);
+            sendJson(response, 201, { ok: true, member });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+          return true;
+        }
+
+        if (segments.length === 5) {
+          if (request.method === 'PATCH') {
+            const body = await readJsonBody(request, { maxBytes: MAX_IMAGE_BODY_BYTES });
+            const member = await serverCatalog.updateMember(segments[4], body);
+            sendJson(response, 200, { ok: true, member });
+            return true;
+          }
+          if (request.method === 'DELETE') {
+            const result = await serverCatalog.deleteMember(segments[4]);
+            sendJson(response, 200, { ok: true, ...result });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH, DELETE' });
+          return true;
+        }
+
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown member route.' });
         return true;
       }
 

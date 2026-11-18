@@ -30,9 +30,15 @@ test('artist and product navigation targets are separate editable HTML files', (
     assert.ok(fs.existsSync(path.join(root, file)), `${file} must exist`);
   }
   const shop = fs.readFileSync(path.join(root, 'shop.html'), 'utf8');
+  const shopScript = fs.readFileSync(path.join(root, 'src', 'shop-page.js'), 'utf8');
   const artist = fs.readFileSync(path.join(root, 'artist.html'), 'utf8');
-  assert.match(shop, /artist\.html\?artist=blackpink/);
-  assert.match(artist, /studio\.html\?artist=/);
+  const artistScript = fs.readFileSync(path.join(root, 'src', 'artist-page.js'), 'utf8');
+  // Cards are rendered from the catalogue, so the link shapes live in the page scripts.
+  assert.match(shopScript, /artist\.html\?artist=/);
+  assert.match(shop, /id="artistGrid"/);
+  assert.match(artistScript, /studio\.html\?artist=/);
+  assert.match(artist, /id="artistMemberGrid"/);
+  assert.doesNotMatch(artist, /id="artistProductGrid"/, 'product designs are no longer offered');
 });
 
 test('local server serves the separate pages and their scripts over HTTP', async (t) => {

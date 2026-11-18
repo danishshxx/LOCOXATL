@@ -5,59 +5,104 @@
   const params = new URLSearchParams(window.location.search);
   const slug = params.get('artist');
   const title = document.getElementById('artistTitle');
-  const grid = document.getElementById('artistProductGrid');
-  if (!grid) return;
+  const memberSection = document.getElementById('artistMembersSection');
+  const memberGrid = document.getElementById('artistMemberGrid');
+  const hero = document.querySelector('.artist-hero');
 
   const safe = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-  // Design images only ever come from the upload pipeline.
-  const safeUpload = (url) => (/^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/.test(String(url || '')) ? String(url) : '');
-  const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(value) || 0).replace('IDR', 'Rp').replace(/\s/g, '');
-  const artClasses = { heart: 'heart-art', star: 'star-art', bow: 'ribbon-art' };
-  const artSymbols = { heart: '♡', star: '✳', bow: '∞' };
+  const safeImage = (url) => (catalog.safeImageUrl ? catalog.safeImageUrl(url) : '');
+  const safeFocal = (value) => (catalog.safeFocal ? catalog.safeFocal(value) : '50% 50%');
 
   function renderUnavailable(message) {
     document.title = 'Collection unavailable — LOCOXATL';
     if (title) title.innerHTML = 'Collection<br /><span>not available.</span>';
-    grid.innerHTML = `<p class="empty-state">${safe(message)} <a href="shop.html">Browse all collections.</a></p>`;
+    if (memberGrid) {
+      memberGrid.innerHTML = `<p class="empty-state">${safe(message)} <a href="shop.html">Browse all collections.</a></p>`;
+    }
+    if (memberSection) memberSection.hidden = false;
   }
 
-  function productCard(product, artist) {
-    const thumb = safeUpload(product.imageUrl);
-    const artClass = artClasses[product.baseId] || '';
-    const art = artSymbols[product.baseId] || '✧';
+  function initials(name) {
+    return String(name || '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || '?';
+  }
+
+  /**
+   * A member is the customer's design choice. The card carries the member's keychain artwork
+   * (falling back to the portrait, then initials) and links to the studio with the member slug.
+   */
+  function memberCard(artist, member) {
+    const artwork = safeImage(member.designImageUrl) || safeImage(member.portraitUrl);
+    const media = artwork
+      ? `<span class="member-card-portrait has-image" style="background-image:url('${artwork}')" role="img" aria-label="${safe(member.name)} keychain artwork"></span>`
+      : `<span class="member-card-portrait is-empty" aria-hidden="true">${safe(initials(member.name))}</span>`;
+    const href = `studio.html?artist=${encodeURIComponent(artist.slug)}&amp;member=${encodeURIComponent(member.slug)}`;
     return `
-      <article class="product-card reveal is-visible">
-        <div class="product-image${thumb ? ' has-image' : ''}"${thumb ? ` style="background-image:url('${thumb}')"` : ''}>
-          <span class="product-tag">${safe(product.tag || 'DESIGN')}</span>
-          ${thumb ? '' : `<div class="mini-product-art ${artClass}">${art}</div>`}
-        </div>
-        <div class="product-meta"><div><h3>${safe(product.name)}</h3><p>${safe(product.category || 'DESIGN')} · ${safe(artist.name)}</p></div><strong>${money(product.price)}</strong></div>
-        <p class="product-description">${safe(product.description)}</p>
-        <a class="button button-dark product-customize" data-product="${safe(product.slug)}" href="studio.html?artist=${encodeURIComponent(artist.slug)}&product=${encodeURIComponent(product.slug)}">Customize <span>↗</span></a>
-      </article>`;
+      <a class="member-card member-card-link reveal is-visible" href="${href}" data-member="${safe(member.slug)}">
+        ${media}
+        <span class="member-card-name">${safe(member.name)}</span>
+      </a>`;
   }
 
-  function renderArtist(artist, products) {
+  /** Shown when a group has no members configured (or while offline): one shared keychain. */
+  function genericCard(artist) {
+    const href = `studio.html?artist=${encodeURIComponent(artist.slug)}`;
+    return `
+      <a class="member-card member-card-link reveal is-visible" href="${href}">
+        <span class="member-card-portrait is-empty" aria-hidden="true">◇</span>
+        <span class="member-card-name">Customize this keychain</span>
+      </a>`;
+  }
+
+  function renderMembers(artist, members) {
+    if (!memberSection || !memberGrid) return;
+    memberSection.hidden = false;
+    memberGrid.innerHTML = members.length
+      ? members.map((member) => memberCard(artist, member)).join('')
+      : genericCard(artist);
+  }
+
+  function applyHero(artist) {
+    const heroImage = safeImage(artist.heroImageUrl) || safeImage(artist.imageUrl);
+    if (hero && heroImage) {
+      hero.classList.add('has-hero-image');
+      hero.style.setProperty('--artist-hero-image', `url('${heroImage}')`);
+      hero.style.setProperty('--artist-hero-focal', safeFocal(artist.heroFocal));
+    }
+    const fandomEl = document.getElementById('artistFandom');
+    if (fandomEl) {
+      const eyebrow = artist.eyebrow || `${artist.fandom} / ARTIST COLLECTION`;
+      fandomEl.textContent = eyebrow;
+    }
+  }
+
+  function renderArtist(artist, members = []) {
     document.title = `${artist.name} Collection — LOCOXATL`;
     document.getElementById('breadcrumbArtist').textContent = artist.name;
-    document.getElementById('artistFandom').textContent = `${artist.fandom} / ARTIST COLLECTION`;
     document.getElementById('artistTitle').innerHTML = `${safe(artist.name)}<br /><span>collection.</span>`;
     document.getElementById('artistDescription').textContent = artist.note;
     document.getElementById('artistEdition').textContent = String(artist.edition).toUpperCase();
     document.getElementById('artistMark').textContent = String(artist.name).toUpperCase();
-
-    if (!products.length) {
-      grid.innerHTML = '<p class="empty-state">No designs are published for this collection yet. <a href="shop.html">Browse all collections.</a></p>';
-      return;
-    }
-    grid.innerHTML = products.map((product) => productCard(product, artist)).join('');
+    applyHero(artist);
+    renderMembers(artist, members);
   }
 
-  // Bundled catalogue first, so the page is complete before the network answers.
+  // An eyebrow without an API payload still needs its default label.
+  const initialFandom = document.getElementById('artistFandom');
+  if (initialFandom && !initialFandom.textContent.trim()) {
+    initialFandom.textContent = 'ARTIST COLLECTION';
+  }
+
+  // Bundled catalogue first, so the page is complete before the network answers. It has no
+  // members, so the generic shared-keychain card links straight into the studio.
   const staticArtist = catalog.getArtist(slug);
   if (staticArtist) {
-    renderArtist(staticArtist, catalog.getProductsByArtist(staticArtist.slug));
-  } else {
+    renderArtist(catalog.artistFromGroup(staticArtist, 0), []);
+  } else if (slug) {
     renderUnavailable('This artist collection is not available yet.');
   }
 
@@ -70,17 +115,17 @@
     const index = payload.groups.findIndex((group) => group.slug === slug);
     if (index >= 0) {
       const group = payload.groups[index];
-      // Hidden designs are already filtered out by the API, so this list is storefront-safe.
-      const groupProducts = Array.isArray(payload.products)
-        ? payload.products.filter((product) => product.groupSlug === group.slug)
+      const members = Array.isArray(payload.members)
+        ? payload.members
+          .filter((member) => member.groupSlug === group.slug && member.isActive !== false)
+          .map((member) => catalog.memberFromApi(member))
         : [];
-      const products = groupProducts.length ? groupProducts : catalog.productsForGroup(group);
-      renderArtist(catalog.artistFromGroup(group, index), products);
+      renderArtist(catalog.artistFromGroup(group, index), members);
       return;
     }
 
     // When the database answered, it is authoritative: a collection missing from it has been
-    // deactivated by the admin, so its products must stop being advertised.
+    // deactivated by the admin, so it must stop being advertised.
     if (payload.source === 'database') {
       renderUnavailable('This collection is no longer available.');
     }

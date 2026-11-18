@@ -92,8 +92,12 @@ CREATE TABLE IF NOT EXISTS catalog_groups (
   slug VARCHAR(64) NOT NULL,
   name VARCHAR(120) NOT NULL,
   tagline VARCHAR(255) NOT NULL DEFAULT '',
+  eyebrow VARCHAR(120) NOT NULL DEFAULT '',
   description TEXT NULL,
-  image_url VARCHAR(255) NULL,
+  image_url VARCHAR(512) NULL,
+  hero_image_url VARCHAR(512) NULL,
+  cover_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
+  hero_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,6 +105,36 @@ CREATE TABLE IF NOT EXISTS catalog_groups (
   PRIMARY KEY (id),
   UNIQUE KEY uq_catalog_groups_slug (slug),
   KEY idx_catalog_groups_active_order (is_active, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- People inside a group. `slug` is unique per group, so two groups can each have a member with
+-- the same short name. Rows cascade away with their group, never the other way around.
+CREATE TABLE IF NOT EXISTS artist_members (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  group_id INT UNSIGNED NOT NULL,
+  slug VARCHAR(64) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  portrait_url VARCHAR(512) NULL,
+  design_image_url VARCHAR(512) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_artist_member_slug (group_id, slug),
+  KEY idx_artist_members_group_order (group_id, is_active, sort_order),
+  KEY idx_artist_members_active_order (is_active, sort_order),
+  CONSTRAINT fk_artist_member_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The single shared keychain product. One row (id = 1) selects the base silhouette every member
+-- uses; member artwork lives on artist_members.design_image_url, never in a per-member product.
+CREATE TABLE IF NOT EXISTS product_settings (
+  id TINYINT UNSIGNED NOT NULL,
+  base_model VARCHAR(20) NOT NULL DEFAULT 'heart',
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT chk_product_settings_base_model CHECK (base_model IN ('heart', 'star', 'bow'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Product designs inside a collection. `slug` is unique per group and stays short
@@ -122,7 +156,7 @@ CREATE TABLE IF NOT EXISTS catalog_products (
   PRIMARY KEY (id),
   UNIQUE KEY uq_group_product_slug (group_id, slug),
   KEY idx_catalog_product_group (group_id),
-  CONSTRAINT fk_catalog_product_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE CASCADE
+  CONSTRAINT fk_catalog_product_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Studio add-on and clasp prices. `option_key` matches the ids in src/options.js so historical

@@ -45,8 +45,9 @@ const pricing = [
   { id: 5, category: 'clasp', option_key: 'black', label: 'Black clasp', price: 5000, is_active: 1, sort_order: 1 },
 ];
 
-const COLUMNS = 'id, slug, name, tagline, description, image_url, is_active, sort_order, created_at, updated_at';
+const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
 const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
+const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
 const PRICING_COLUMNS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 function withTimestamps(row) {
@@ -72,15 +73,15 @@ async function execute(sql, params = []) {
     return [[{ total: groups.length }]];
   }
   if (/^INSERT(?: IGNORE)? INTO catalog_groups/i.test(query)) {
-    const [slug, name, tagline, description] = params;
-    if (groups.some((row) => row.slug === slug)) {
+    const columnList = /\(([^)]+)\)\s*VALUES/i.exec(query)[1].split(',').map((name) => name.trim());
+    const row = { id: nextId++, image_url: null, hero_image_url: null, cover_focal: '50% 50%', hero_focal: '50% 50%' };
+    columnList.forEach((column, index) => { row[column] = params[index]; });
+    if (groups.some((entry) => entry.slug === row.slug)) {
       const error = new Error('Duplicate entry');
       error.code = 'ER_DUP_ENTRY';
       throw error;
     }
-    const isActive = /INSERT IGNORE/i.test(query) ? 1 : Number(params[4]);
-    const sortOrder = Number(params[params.length - 1]);
-    const row = { id: nextId++, slug, name, tagline, description, is_active: isActive, sort_order: sortOrder };
+    if (/INSERT IGNORE/i.test(query)) row.is_active = 1;
     groups.push(row);
     return [{ insertId: row.id, affectedRows: 1 }];
   }
@@ -102,6 +103,13 @@ async function execute(sql, params = []) {
   }
   if (new RegExp(`^SELECT ${PRODUCT_COLUMNS} FROM catalog_products ORDER BY`, 'i').test(query)) {
     return [products.map(withTimestamps)];
+  }
+  // Migration 006 members: this fixture has none, so the catalogue publishes an empty list.
+  if (new RegExp(`^SELECT ${MEMBER_COLUMNS} FROM artist_members`, 'i').test(query)) {
+    return [[]];
+  }
+  if (/^SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
+    return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
   }
   if (new RegExp(`^SELECT ${PRICING_COLUMNS} FROM pricing_options WHERE is_active = 1 ORDER BY`, 'i').test(query)) {
     return [pricing.filter((row) => row.is_active).map(withTimestamps)];

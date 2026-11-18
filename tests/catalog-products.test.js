@@ -12,8 +12,9 @@ process.env.DB_NAME = 'catalog_products_test';
 
 const staticCatalog = require('../src/catalog.js');
 
-const GROUP_FIELDS = 'id, slug, name, tagline, description, image_url, is_active, sort_order, created_at, updated_at';
+const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
 const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 const groups = [
@@ -106,6 +107,21 @@ async function execute(sql, params = []) {
     return [{ affectedRows: 1 }];
   }
 
+  // --- members (migration 006) ---------------------------------------------
+  // This fixture has no members, so the public catalogue publishes an empty list.
+  if (new RegExp(`^SELECT ${MEMBER_FIELDS} FROM artist_members`, 'i').test(query)) {
+    return [[]];
+  }
+
+  // --- single product settings (migration 008) ------------------------------
+  if (/^SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
+    return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
+  }
+  if (/^SELECT base_price FROM catalog_products WHERE template_key = 'acrylic-keychain'/i.test(query)) {
+    const heart = products.find((row) => row.template_key === 'acrylic-keychain');
+    return [heart ? [{ base_price: heart.base_price }] : []];
+  }
+
   // --- pricing --------------------------------------------------------------
   if (/^SELECT COUNT\(\*\) AS total FROM pricing_options$/i.test(query)) {
     return [[{ total: pricing.length }]];
@@ -118,10 +134,9 @@ async function execute(sql, params = []) {
   }
   if (/^INSERT(?: IGNORE)? INTO pricing_options/i.test(query)) {
     const key = params[1];
+    // INSERT IGNORE never throws on a duplicate; it simply reports 0 affected rows.
     if (pricing.some((row) => row.option_key === key)) {
-      const error = new Error('Duplicate entry');
-      error.code = 'ER_DUP_ENTRY';
-      throw error;
+      return [{ insertId: 0, affectedRows: 0 }];
     }
     const row = {
       id: nextPricingId++,
@@ -192,11 +207,11 @@ test('seeding fills the design and price tables once, then leaves them alone', a
   assert.equal(products.length, 6, 're-running must not duplicate designs');
 
   const priceSeed = await catalog.seedPricingOptions();
-  assert.equal(priceSeed.seeded, 5, 'three add-ons and two clasps');
+  assert.equal(priceSeed.seeded, 6, 'one shared base price, three add-ons and two clasps');
 
   const priceAgain = await catalog.seedPricingOptions();
   assert.equal(priceAgain.seeded, 0);
-  assert.equal(pricing.length, 5);
+  assert.equal(pricing.length, 6);
 });
 
 test('the seeded designs keep the storefront slugs and prices', async () => {
@@ -364,45 +379,40 @@ test('migration 005 and the schema create both tables and seed them only when em
   }
 });
 
-test('the dashboard exposes product design and pricing management', () => {
+test('the dashboard exposes Product Setup and no duplicate product-design manager', () => {
   const root = path.join(__dirname, '..');
   const html = fs.readFileSync(path.join(root, 'admin.html'), 'utf8');
   const script = fs.readFileSync(path.join(root, 'src', 'admin.js'), 'utf8');
 
-  for (const tab of ['groups', 'products', 'pricing']) {
-    assert.match(html, new RegExp(`data-catalog-tab="${tab}"`), `${tab} sub-tab must exist`);
-    assert.match(html, new RegExp(`data-catalog-panel="${tab}"`), `${tab} panel must exist`);
-  }
-
-  assert.match(html, /id="catalogProductsBody"/);
-  assert.match(html, /id="productGroupFilter"/);
-  assert.match(html, /id="productModalBackdrop"/);
-  assert.match(html, /id="productTemplate"/);
-  assert.match(html, /id="productBasePrice"[^>]*min="0"/);
-  assert.match(html, /id="productImageInput"/);
-
+  assert.match(html, /data-view="product"/, 'the Product Setup view tab exists');
+  assert.match(html, /id="productSettingsForm"/);
+  assert.match(html, /id="baseModelSelect"/);
+  assert.match(html, /id="basePriceInput"/);
   assert.match(html, /id="pricingBody"/);
   assert.match(html, /id="savePricingBtn"/);
-  assert.match(html, /id="pricingBody"[\s\S]*Save Pricing/);
 
-  assert.match(script, /\/api\/admin\/catalog\/products/);
+  assert.doesNotMatch(html, /id="catalogProductsBody"/, 'Product Designs management is removed');
+  assert.doesNotMatch(html, /id="productModalBackdrop"/, 'the design modal is removed');
+  assert.doesNotMatch(html, /data-catalog-tab="groups"/, 'the duplicate Collections tab is removed');
+
+  assert.match(script, /\/api\/admin\/product-settings/);
   assert.match(script, /\/api\/admin\/pricing/);
-  assert.match(script, /openProductModal/);
+  assert.match(script, /saveProductSettings/);
   assert.match(script, /savePricing/);
-  assert.match(script, /trapFocusWithin\(\$\('#productModal'\)/, 'the new dialog must trap focus');
+  assert.match(script, /loadProductSettings/);
 });
 
-test('the storefront reads designs and prices from the catalogue payload', () => {
+test('the storefront reads the shared product, member artwork and live prices', () => {
   const root = path.join(__dirname, '..');
   const artistPage = fs.readFileSync(path.join(root, 'src', 'artist-page.js'), 'utf8');
   const studio = fs.readFileSync(path.join(root, 'src', 'studio.js'), 'utf8');
 
-  assert.match(artistPage, /product\.imageUrl/, 'collection cards use the uploaded design image');
-  assert.match(artistPage, /money\(product\.price\)/, 'collection cards use the live base price');
+  assert.match(artistPage, /member\.designImageUrl/, 'member cards use the uploaded keychain artwork');
+  assert.match(artistPage, /member=\$\{encodeURIComponent\(member\.slug\)\}/, 'member selection forwards the member slug');
 
   assert.match(studio, /payload\.options/, 'the studio reads the live price table');
   assert.match(studio, /pricing\.priceOf/, 'the studio resolves prices through the shared module');
-  assert.match(studio, /applyLiveDesign/, 'the studio applies the live design');
-  assert.match(studio, /templateKey|baseId/, 'the studio maps the 3D template to a silhouette');
-  assert.match(studio, /studioDesignImage/, 'the studio shows the selected design image');
+  assert.match(studio, /payload\.product|activeProduct/, 'the studio applies the global base product');
+  assert.match(studio, /designImageUrl/, 'the studio shows the member artwork');
+  assert.doesNotMatch(studio, /applyLiveDesign|data-base/, 'product design switching is removed');
 });

@@ -43,6 +43,9 @@ existing database, or just run `npm run db:migrate`, which applies all of them:
 | `database/migrations/003_catalog_groups.sql` | `catalog_groups`, cashbook reversal pointer, `Order Refunds` category, drops the obsolete one-income-per-order key |
 | `database/migrations/004_catalog_group_images.sql` | `catalog_groups.image_url` |
 | `database/migrations/005_products_and_pricing.sql` | `catalog_products`, `pricing_options`, seeds the three standard designs per collection and the bundled studio prices |
+| `database/migrations/006_artist_groups_members.sql` | `catalog_groups` presentation fields (`eyebrow`, `hero_image_url`, `cover_focal`, `hero_focal`), widened image URL columns, `artist_members` |
+| `database/migrations/007_catalog_product_group_restrict.sql` | Changes the catalog product-to-group foreign key to restrict group deletion while products still reference it |
+| `database/migrations/008_catalog_simplification.sql` | `artist_members.design_image_url`, single-row `product_settings` (global base silhouette), shared `pricing_options` base price. `catalog_products` and historical orders are preserved |
 
 `003` supersedes part of `002`'s original definition: it drops
 `uq_cashbook_order_entry_type` so a refunded order can be verified again. Because
@@ -112,6 +115,10 @@ Then edit `.env`:
 | `DB_PASSWORD` | no | empty | Database password |
 | `DB_NAME` | yes | — | Database name (`locoxatl`) |
 | `DB_CONNECTION_LIMIT` | no | `5` | Pool size |
+| `CLOUDINARY_CLOUD_NAME` | production | — | Cloudinary cloud name for persistent image storage |
+| `CLOUDINARY_API_KEY` | production | — | Cloudinary API key (server-side only) |
+| `CLOUDINARY_API_SECRET` | production | — | Cloudinary API secret (server-side only) |
+| `CLOUDINARY_FOLDER` | no | `locoxatl/catalog` | Cloudinary folder for uploaded images |
 | `PORT` | no | `4173` | Preview server port |
 | `OPEN_BROWSER` | no | unset | `1` opens the browser on start |
 
@@ -154,6 +161,22 @@ Set `ADMIN_USERNAME` and a unique, strong `ADMIN_PASSWORD` as service secrets. R
 sets `PORT` automatically. The server binds to `0.0.0.0` in production and to
 `127.0.0.1` for local development. The Railway HTTPS proxy's `X-Forwarded-Proto`
 continues to control the Secure admin-cookie attribute.
+
+Artist, member and product images need persistent storage because the Railway container
+filesystem is ephemeral. Add the Cloudinary credentials as service variables so uploads
+survive deploys:
+
+```text
+CLOUDINARY_CLOUD_NAME=<cloud name>
+CLOUDINARY_API_KEY=<api key>
+CLOUDINARY_API_SECRET=<api secret>
+# optional
+CLOUDINARY_FOLDER=locoxatl/catalog
+```
+
+These are server-side only: the browser uploads to this app, which forwards the image to
+Cloudinary and stores the returned URL in MySQL. Without them the app falls back to
+`assets/uploads/catalog/`, which is suitable only for local development.
 
 The application start command does not apply schema changes. `npm run db:migrate`
 initializes missing tables in the selected database and applies additive migrations.
@@ -207,7 +230,7 @@ SELECT JSON_EXTRACT(configuration_json, '$.configuration.initial') FROM locoxatl
 |---|---|---|
 | `GET` | `/api/health` | `200` when MySQL answers, `503` when not configured or unreachable |
 | `GET` | `/api/public-config` | Validated WhatsApp/Instagram contact links for the storefront footer |
-| `GET` | `/api/catalog` | Active catalog groups ordered by `sort_order`, plus the three product templates per group. Falls back to the bundled catalogue when MySQL is unavailable |
+| `GET` | `/api/catalog` | Active catalog groups ordered by `sort_order`, their visible members, and the three product templates per group. Falls back to the bundled catalogue when MySQL is unavailable |
 | `POST` | `/api/orders` | Validates, recomputes the price, writes order + item + configuration in one transaction. `201` on success, `400` on validation errors, `503` when the database is unavailable |
 | `GET` | `/api/orders/:orderNumber` | Returns status, total, and product lines only; never returns customer PII or customizer data |
 | `PATCH` | `/api/orders/:orderNumber/status` | Customer-side status update `waiting_for_payment → payment_confirmation_sent`; `409` for any other transition |
@@ -229,13 +252,24 @@ SELECT JSON_EXTRACT(configuration_json, '$.configuration.initial') FROM locoxatl
 | `GET` | `/api/admin/reports/export.xlsx` | Authenticated Excel workbook (`scope=summary|orders|income|expenses|cashbook`) |
 | `GET` | `/api/admin/catalog/groups` | Every catalog group, including hidden ones, ordered by `sort_order` |
 | `POST` | `/api/admin/catalog/groups` | Create a group; the slug is derived from the name when omitted, duplicates return `409` |
-| `PATCH` | `/api/admin/catalog/groups/:id` | Update `name`, `slug`, `tagline`, `description`, `sortOrder`, or `isActive` |
-| `POST` | `/api/admin/catalog/groups/:id/image` | Upload the card image (base64 data URL; PNG/JPEG/WebP, 3 MB max after the browser downscales it) |
-| `DELETE` | `/api/admin/catalog/groups/:id/image` | Remove the card image and delete the stored file |
+| `PATCH` | `/api/admin/catalog/groups/:id` | Update `name`, `slug`, `tagline`, `eyebrow`, `description`, `coverFocal`, `heroFocal`, `sortOrder`, or `isActive` |
+| `DELETE` | `/api/admin/catalog/groups/:id` | Delete a group; its product designs and members cascade with it and their stored images are removed |
+| `POST` | `/api/admin/catalog/groups/:id/image` | Upload the collection cover (`?kind=cover`, default) or the member-selection hero (`?kind=hero`) from a base64 data URL (PNG/JPEG/WebP, 3 MB max after the browser downscales it) |
+| `DELETE` | `/api/admin/catalog/groups/:id/image` | Remove the cover or hero image (`?kind=`) and delete the stored file |
+| `GET` | `/api/admin/catalog/members` | List members, optionally filtered with `?groupId=` |
+| `POST` | `/api/admin/catalog/members` | Create a member; the slug is derived from the name and is unique per group |
+| `PATCH` | `/api/admin/catalog/members/:id` | Update `name`, `slug`, `portraitUrl`, `sortOrder`, or `isActive` |
+| `DELETE` | `/api/admin/catalog/members/:id` | Delete a member and remove its portrait |
 
 Notes:
 
 - All SQL is parameterised; no value is interpolated into a query string.
+- Artist and member images are stored in Cloudinary when `CLOUDINARY_CLOUD_NAME`,
+  `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` are set; only the returned `https://res.cloudinary.com/...`
+  URL is written to MySQL. Without those variables the server writes to
+  `assets/uploads/catalog/`, which is fine locally but does not survive a Railway restart.
+  The focal crops (`cover_focal`, `hero_focal`) are validated `"x% y%"` pairs and are applied
+  directly as a CSS `background-position`, so no unvalidated value reaches the storefront.
 - The order total is always recomputed server side from `src/pricing.js` + `src/options.js`
   and the catalog price of the chosen base silhouette. A tampered browser total is
   corrected, and the response sets `priceAdjusted: true`.

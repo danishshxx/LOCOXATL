@@ -11,15 +11,16 @@
 
   if (!form || !summary) return;
 
-  if (!order || !order.product) {
-    summary.innerHTML = '<div class="empty-state"><h2>No design selected yet.</h2><p>Choose an artist and customize a product before checkout.</p><a class="button button-dark" href="shop.html">Browse collections <span>↗</span></a></div>';
+  if (!order || (!order.member && !order.product && !order.artist)) {
+    summary.innerHTML = '<div class="empty-state"><h2>No design selected yet.</h2><p>Choose a member and customize the keychain before checkout.</p><a class="button button-dark" href="shop.html">Browse collections <span>↗</span></a></div>';
     if (submitButton) submitButton.disabled = true;
     return;
   }
 
+  const member = order.member || null;
   const config = order.configuration || {};
   const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name].filter(Boolean).join(' · ');
-  $('#summaryProductName').textContent = order.product.name || 'Custom keychain';
+  $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
   $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
   $('#summaryConfiguration').textContent = configText;
   $('#summaryPrice').textContent = money(order.total || 0);
@@ -58,7 +59,9 @@
       customer: order.customer,
       order: {
         artist: order.artist,
-        product: order.product,
+        member: order.member || undefined,
+        product: order.product || undefined,
+        baseModel: order.baseModel || order.configuration?.base?.id,
         configuration: {
           base: config.base,
           addons: config.addons,

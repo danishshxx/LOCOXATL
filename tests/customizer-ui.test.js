@@ -25,10 +25,13 @@ test('the 3D viewer mounts into the existing preview panel without new layout se
   assert.match(studioHtml, /id="studioViewerCanvas"/);
   assert.match(studioHtml, /class="custom-preview"/);
   assert.match(studioHtml, /class="builder-preview-panel"/);
-  // The original control steps are untouched.
-  for (const marker of ['data-base="heart"', 'data-base="star"', 'data-base="bow"', 'data-addon="pearl"', 'data-addon="star"', 'id="initialToggle"', 'data-clasp="silver"', 'data-clasp="black"', 'id="continueToCheckout"']) {
+  // The customer cannot switch silhouettes; the shared model is chosen in Product Setup.
+  assert.doesNotMatch(studioHtml, /data-base="heart"/, 'silhouette switching is removed');
+  for (const marker of ['data-addon="pearl"', 'data-addon="star"', 'id="initialToggle"', 'data-clasp="silver"', 'data-clasp="black"', 'id="continueToCheckout"']) {
     assert.ok(studioHtml.includes(marker), `${marker} control must stay in place`);
   }
+  assert.match(studioScript, /product\.baseModel|activeProduct\.baseModel/, 'the fixed global silhouette drives the studio');
+  assert.match(studioScript, /designImageUrl/, 'the member artwork is applied to the charm face');
 });
 
 test('explode, assemble and reset controls exist and are wired to the viewer module', () => {

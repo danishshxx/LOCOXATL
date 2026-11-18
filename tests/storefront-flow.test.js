@@ -22,15 +22,25 @@ test('homepage introduces the brand and sends shopping intent to artist collecti
 
 test('artist directory links to artist-specific product collections', () => {
   const html = read('shop.html');
-  assert.match(html, /artist\.html\?artist=/);
-  assert.match(html, /BLACKPINK/);
-  assert.match(html, /SEVENTEEN/);
+  const script = read('src/shop-page.js');
+  // Cards are rendered from /api/catalog (with the bundled catalogue as the first paint), so the
+  // link shape lives in the page script and no artist name is hardcoded in the markup.
+  assert.match(script, /artist\.html\?artist=/);
+  assert.match(html, /id="artistGrid"/);
+  assert.doesNotMatch(html, /artist\.html\?artist=blackpink/, 'collections must not be hardcoded');
+  assert.doesNotMatch(html, /BLACKPINK|SEVENTEEN/, 'collections must not be hardcoded');
 });
 
-test('artist product page carries selected artist and product into custom studio', () => {
+test('artist member page carries the selected member into the custom studio', () => {
   const html = read('artist.html');
-  assert.match(html, /studio\.html\?artist=/);
-  assert.match(html, /data-product=/);
+  const script = read('src/artist-page.js');
+  // Member cards are rendered from the live catalogue, so the studio link lives in the page
+  // script rather than in hardcoded markup.
+  assert.match(script, /studio\.html\?artist=/);
+  assert.match(script, /member=\$\{encodeURIComponent\(member\.slug\)\}/);
+  assert.match(html, /id="artistMemberGrid"/);
+  assert.doesNotMatch(html, /id="artistProductGrid"/, 'product design choices are removed');
+  assert.doesNotMatch(html, /data-product="blackpink-cloud-heart"/, 'no design may be hardcoded in the page');
 });
 
 test('custom studio sends the selected configuration directly to checkout', () => {

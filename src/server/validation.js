@@ -98,11 +98,11 @@ function sanitizeTransform(transform) {
   };
 }
 
-function quoteFor({ product, configuration, quantity, pricingTable }) {
+function quoteFor({ basePrice, configuration, quantity, pricingTable }) {
   // When a live table is supplied the prices come from pricing_options; otherwise
   // src/pricing.js falls back to src/options.js, so both paths agree on the same total.
   return pricing.calculatePrice({
-    basePrice: product.price,
+    basePrice,
     addonIds: configuration.addons.filter((id) => id !== 'initial'),
     claspId: configuration.clasp,
     initial: configuration.initial,
@@ -115,6 +115,10 @@ function catalogProducts(catalogData) {
   return catalogData && Array.isArray(catalogData.products)
     ? catalogData.products
     : serverCatalog.staticProducts();
+}
+
+function catalogMembers(catalogData) {
+  return catalogData && Array.isArray(catalogData.members) ? catalogData.members : [];
 }
 
 function catalogGroups(catalogData) {
@@ -139,26 +143,63 @@ function validateOrderPayload(payload = {}, context = {}) {
   const catalogData = context && context.catalog ? context.catalog : null;
   const strict = Boolean(catalogData && catalogData.source === 'database');
   const products = catalogProducts(catalogData);
+  const members = catalogMembers(catalogData);
   const groups = catalogGroups(catalogData);
   const pricingTable = catalogData && catalogData.options ? catalogData.options : null;
+  const productSettings = catalogData && catalogData.product ? catalogData.product : null;
 
   const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
   const configuration = normalizeConfiguration(payload.order?.configuration || payload.configuration || {}, errors);
 
   const productSlug = cleanText(payload.order?.product?.slug || payload.productSlug, 80);
+  const memberSlug = cleanText(payload.order?.member?.slug || payload.memberSlug, 64);
   const artistSlug = cleanText(payload.order?.artist?.slug, 60);
+  // Member-based designs are the new path; a product slug keeps older clients working unchanged.
+  const memberMode = Boolean(memberSlug);
 
-  const group = artistSlug ? groups.find((item) => item.slug === artistSlug) || null : null;
-  const product = productSlug ? products.find((item) => item.slug === productSlug) || null : null;
+  let group = artistSlug ? groups.find((item) => item.slug === artistSlug) || null : null;
+  let member = null;
+  let product = null;
 
-  if (!product) {
-    errors.product_slug = strict ? 'That design is not available right now.' : 'Unknown product.';
-  }
-  if (strict && artistSlug && !group) {
-    errors.artist_slug = 'That collection is not available right now.';
-  }
-  if (product && group && product.groupSlug && product.groupSlug !== group.slug) {
-    errors.product_slug = 'That design does not belong to the selected collection.';
+  if (memberMode) {
+    member = members.find((item) => item.slug === memberSlug
+      && (!artistSlug || item.groupSlug === artistSlug)
+      && item.isActive !== false) || null;
+
+    if (!member) {
+      errors.member_slug = strict ? 'That member design is not available right now.' : 'Unknown member design.';
+    }
+    if (!group && member && member.groupSlug) {
+      group = groups.find((item) => item.slug === member.groupSlug) || null;
+    }
+    if (strict && artistSlug && !group) {
+      errors.artist_slug = 'That collection is not available right now.';
+    }
+    if (strict && member && group && member.groupSlug && member.groupSlug !== group.slug) {
+      errors.member_slug = 'That member does not belong to the selected collection.';
+    }
+
+    // The base silhouette is one global setting; a member design may not switch it.
+    const baseModel = productSettings && productSettings.baseModel
+      ? String(productSettings.baseModel).toLowerCase()
+      : 'heart';
+    if (!configuration.base) {
+      configuration.base = baseModel;
+    } else if (configuration.base !== baseModel) {
+      errors.base = 'The base shape is fixed for every design.';
+    }
+  } else {
+    product = productSlug ? products.find((item) => item.slug === productSlug) || null : null;
+
+    if (!product) {
+      errors.product_slug = strict ? 'That design is not available right now.' : 'Unknown product.';
+    }
+    if (strict && artistSlug && !group) {
+      errors.artist_slug = 'That collection is not available right now.';
+    }
+    if (product && group && product.groupSlug && product.groupSlug !== group.slug) {
+      errors.product_slug = 'That design does not belong to the selected collection.';
+    }
   }
 
   const quantity = Number(payload.order?.quantity ?? payload.quantity ?? 1);
@@ -166,27 +207,58 @@ function validateOrderPayload(payload = {}, context = {}) {
     errors.quantity = `Quantity must be an integer between 1 and ${MAX_QUANTITY}.`;
   }
 
-  const configurationJson = JSON.stringify({ configuration, product: productSlug });
+  const configurationJson = JSON.stringify({
+    configuration,
+    member: memberMode ? memberSlug : undefined,
+    product: memberMode ? undefined : productSlug,
+  });
   if (configurationJson.length > MAX_CONFIGURATION_BYTES) {
     errors.configuration = 'The configuration snapshot is too large.';
   }
 
   if (Object.keys(errors).length) throw new ValidationError(errors);
 
-  // Swapping the silhouette in the studio moves the price to that design, not the page the
-  // journey started from. Designs are matched inside the same collection.
-  const baseSwap = configuration.base && group
-    ? products.find((item) => item.groupSlug === group.slug && item.baseId === configuration.base) || null
-    : null;
-  const pricedProduct = baseSwap || product;
+  let pricedProduct = null;
+  let memberInfo = null;
+  let basePrice;
+  let artistName;
 
-  const quote = quoteFor({ product: pricedProduct, configuration, quantity, pricingTable });
+  if (memberMode) {
+    // One shared base price from pricing_options; member artwork never creates a product variant.
+    basePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
+      ? Number(productSettings.basePrice)
+      : (pricingTable && pricingTable.base && Number.isFinite(Number(pricingTable.base.price))
+        ? Number(pricingTable.base.price)
+        : 45000);
+    artistName = group ? group.name : null;
+    memberInfo = {
+      slug: member.slug,
+      name: member.name,
+      groupSlug: group ? group.slug : (member.groupSlug || null),
+      designImageUrl: member.designImageUrl || null,
+    };
+  } else {
+    // Swapping the silhouette in the studio moves the price to that design, not the page the
+    // journey started from. Designs are matched inside the same collection.
+    const baseSwap = configuration.base && group
+      ? products.find((item) => item.groupSlug === group.slug && item.baseId === configuration.base) || null
+      : null;
+    pricedProduct = baseSwap || product;
+    basePrice = pricedProduct.price;
+    artistName = group ? group.name : (pricedProduct.groupName || null);
+  }
+
+  const quote = quoteFor({ basePrice, configuration, quantity, pricingTable });
   const submittedTotal = Number(payload.order?.total);
-  const artistName = group ? group.name : (pricedProduct.groupName || null);
+
+  const productName = memberMode
+    ? (artistName ? `${member.name} Keychain — ${artistName}` : `${member.name} Keychain`)
+    : (artistName ? `${pricedProduct.name} — ${artistName}` : pricedProduct.name);
 
   return {
     customer,
     product: pricedProduct,
+    member: memberInfo,
     artist: group ? { slug: group.slug, name: group.name, fandom: group.tagline || group.name.toUpperCase() } : null,
     configuration,
     configurationJson,
@@ -194,7 +266,7 @@ function validateOrderPayload(payload = {}, context = {}) {
     quote,
     submittedTotal: Number.isFinite(submittedTotal) ? submittedTotal : null,
     priceAdjusted: Number.isFinite(submittedTotal) && submittedTotal !== quote.total,
-    productName: artistName ? `${pricedProduct.name} — ${artistName}` : pricedProduct.name,
+    productName,
     source: strict ? 'database' : 'bundled',
   };
 }

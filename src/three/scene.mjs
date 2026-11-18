@@ -78,6 +78,7 @@ export class StudioScene {
     this.createLights();
 
     this.assembly = new CharmAssembly({ materials: this.materials });
+    this.assembly.onUpdate = () => this.requestRender();
     this.scene.add(this.assembly.root);
 
     this.createShadowCatcher();
@@ -361,6 +362,9 @@ export class StudioScene {
 
   applyConfiguration(configuration) {
     const result = this.assembly.apply(configuration);
+    if (configuration && configuration.designImageUrl !== undefined) {
+      this.assembly.setDesignImage(configuration.designImageUrl);
+    }
     if (result.baseChanged) this.fitCamera();
     this.refreshShadowCamera();
     this.shadowDirty = true;

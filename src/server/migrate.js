@@ -40,6 +40,17 @@ async function tableConstraints(connection, table) {
   return new Set(rows.map((row) => String(row.CONSTRAINT_NAME).toLowerCase()));
 }
 
+/** Character length of a column, or null when the column (or its table) does not exist. */
+async function columnLength(connection, table, column) {
+  const [rows] = await connection.query(
+    `SELECT CHARACTER_MAXIMUM_LENGTH AS columnLength FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [table, column],
+  );
+  const length = rows[0] && rows[0].columnLength;
+  return length === undefined || length === null ? null : Number(length);
+}
+
 async function assertSelectedDatabase(connection) {
   const [rows] = await connection.query('SELECT DATABASE() AS databaseName');
   const databaseName = rows[0] && rows[0].databaseName;
@@ -241,8 +252,12 @@ async function runAdditiveMigrations() {
         slug VARCHAR(64) NOT NULL,
         name VARCHAR(120) NOT NULL,
         tagline VARCHAR(255) NOT NULL DEFAULT '',
+        eyebrow VARCHAR(120) NOT NULL DEFAULT '',
         description TEXT NULL,
-        image_url VARCHAR(255) NULL,
+        image_url VARCHAR(512) NULL,
+        hero_image_url VARCHAR(512) NULL,
+        cover_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
+        hero_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
         is_active TINYINT(1) NOT NULL DEFAULT 1,
         sort_order INT NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -254,9 +269,72 @@ async function runAdditiveMigrations() {
     `);
 
     const catalogColumns = await tableColumns(connection, 'catalog_groups');
-    if (!catalogColumns.has('image_url')) {
-      await connection.query('ALTER TABLE catalog_groups ADD COLUMN image_url VARCHAR(255) NULL AFTER description');
+    // Migration 006 presentation fields. Each is added only when missing, so a database created
+    // from an older schema.sql, 003 or 004 is upgraded in place without rewriting any row.
+    const presentationColumns = [
+      { name: 'image_url', definition: 'VARCHAR(512) NULL AFTER description' },
+      { name: 'eyebrow', definition: "VARCHAR(120) NOT NULL DEFAULT '' AFTER tagline" },
+      { name: 'hero_image_url', definition: 'VARCHAR(512) NULL AFTER image_url' },
+      { name: 'cover_focal', definition: "VARCHAR(32) NOT NULL DEFAULT '50% 50%' AFTER hero_image_url" },
+      { name: 'hero_focal', definition: "VARCHAR(32) NOT NULL DEFAULT '50% 50%' AFTER cover_focal" },
+    ];
+    for (const column of presentationColumns) {
+      if (catalogColumns.has(column.name)) continue;
+      await connection.query(`ALTER TABLE catalog_groups ADD COLUMN ${column.name} ${column.definition}`);
     }
+
+    // Cloudinary delivery URLs are longer than the 255 characters migration 004 allowed.
+    // Widening a VARCHAR is metadata-only and never rewrites stored values.
+    const groupImageLength = await columnLength(connection, 'catalog_groups', 'image_url');
+    if (groupImageLength !== null && groupImageLength < 512) {
+      await connection.query('ALTER TABLE catalog_groups MODIFY COLUMN image_url VARCHAR(512) NULL');
+    }
+    const productImageLength = await columnLength(connection, 'catalog_products', 'image_url');
+    if (productImageLength !== null && productImageLength < 512) {
+      await connection.query('ALTER TABLE catalog_products MODIFY COLUMN image_url VARCHAR(512) NULL');
+    }
+
+    // 6. Group members (migration 006). Additive: the table is created only when missing.
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS artist_members (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        group_id INT UNSIGNED NOT NULL,
+        slug VARCHAR(64) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        portrait_url VARCHAR(512) NULL,
+        design_image_url VARCHAR(512) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_artist_member_slug (group_id, slug),
+        KEY idx_artist_members_group_order (group_id, is_active, sort_order),
+        KEY idx_artist_members_active_order (is_active, sort_order),
+        CONSTRAINT fk_artist_member_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Migration 008: the member's keychain artwork column and the single global product setting.
+    // Both are additive and guarded, so an older database is upgraded in place.
+    const memberColumns = await tableColumns(connection, 'artist_members');
+    if (!memberColumns.has('design_image_url')) {
+      await connection.query(
+        'ALTER TABLE artist_members ADD COLUMN design_image_url VARCHAR(512) NULL AFTER portrait_url',
+      );
+    }
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS product_settings (
+        id TINYINT UNSIGNED NOT NULL,
+        base_model VARCHAR(20) NOT NULL DEFAULT 'heart',
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        CONSTRAINT chk_product_settings_base_model CHECK (base_model IN ('heart', 'star', 'bow'))
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    // 'heart' is the silhouette the bundled studio already opens on, so it stays the default.
+    await connection.query("INSERT IGNORE INTO product_settings (id, base_model) VALUES (1, 'heart')");
 
     // 5. Product designs per collection and the editable studio price table (migration 005).
     //    Both are additive: existing rows are never rewritten, and the seeders below only run
@@ -278,9 +356,49 @@ async function runAdditiveMigrations() {
         PRIMARY KEY (id),
         UNIQUE KEY uq_group_product_slug (group_id, slug),
         KEY idx_catalog_product_group (group_id),
-        CONSTRAINT fk_catalog_product_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE CASCADE
+        CONSTRAINT fk_catalog_product_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE RESTRICT
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    const [productGroupFks] = await connection.query(`
+      SELECT kcu.CONSTRAINT_NAME AS constraintName, rc.DELETE_RULE AS deleteRule
+      FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+      JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+        ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+       AND rc.TABLE_NAME = kcu.TABLE_NAME
+       AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+      WHERE kcu.CONSTRAINT_SCHEMA = DATABASE()
+        AND kcu.TABLE_NAME = 'catalog_products'
+        AND kcu.COLUMN_NAME = 'group_id'
+        AND kcu.REFERENCED_TABLE_NAME = 'catalog_groups'
+        AND kcu.REFERENCED_COLUMN_NAME = 'id'
+    `);
+
+    const restrictiveProductGroupFk = productGroupFks.find(
+      (foreignKey) => String(foreignKey.deleteRule).toUpperCase() === 'RESTRICT',
+    );
+    if (!productGroupFks.length) {
+      await connection.query(`
+        ALTER TABLE catalog_products
+        ADD CONSTRAINT fk_catalog_product_group
+        FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE RESTRICT
+      `);
+    } else if (!restrictiveProductGroupFk) {
+      await connection.query(`
+        ALTER TABLE catalog_products
+        ADD CONSTRAINT fk_catalog_product_group_restrict_007
+        FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE RESTRICT
+      `);
+    }
+
+    for (const foreignKey of productGroupFks) {
+      if (foreignKey === restrictiveProductGroupFk) continue;
+      const oldName = String(foreignKey.constraintName).replace(/`/g, '``');
+      await connection.query(`
+        ALTER TABLE catalog_products
+        DROP FOREIGN KEY \`${oldName}\`
+      `);
+    }
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS pricing_options (

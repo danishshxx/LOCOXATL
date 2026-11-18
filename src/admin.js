@@ -42,18 +42,23 @@
   let editingExpenseId = null;
   let accountingSummaryPoll = null;
   let activeView = 'orders';
-  let catalogGroups = [];
-  let catalogTab = 'groups';
-  let catalogProducts = [];
   let pricingOptions = [];
+  let productSettings = null;
+  let dbSchemaReady = true;
   let lastFocusedElement = null;
-  let pendingImageData = null;
-  let pendingImageRemoval = false;
-  let pendingProductImage = null;
-  let pendingProductImageRemoval = false;
-
-  const catalogTemplates = (window.LocoxatlCatalog && window.LocoxatlCatalog.productTemplates) || [];
-  const templateKeys = catalogTemplates.map((template) => template.templateKey);
+  // Artist & Group Management keeps its own copy of the groups so the Catalog tab and this tab
+  // never overwrite each other's freshly edited rows.
+  let artistGroups = [];
+  let artistGroupTab = 'groups';
+  let artistMembers = [];
+  let artistPendingCover = null;
+  let artistPendingCoverRemoval = false;
+  let artistPendingHero = null;
+  let artistPendingHeroRemoval = false;
+  let artistPendingPortrait = null;
+  let artistPendingPortraitRemoval = false;
+  let artistPendingDesign = null;
+  let artistPendingDesignRemoval = false;
 
   // ---------------------------------------------------------------------------
   // API Client with Auth
@@ -76,6 +81,14 @@
     return response;
   }
 
+  function databaseMessage(error, fallback) {
+    if (dbSchemaReady === false) {
+      return 'MySQL is connected, but required tables are missing. Run "npm run db:migrate".';
+    }
+    const text = String(error && error.message ? error.message : '').trim();
+    return text ? fallback + ': ' + text : fallback + ' could not be loaded.';
+  }
+
   function showToast(message) {
     const toast = $('#adminToast');
     if (!toast) return;
@@ -94,15 +107,21 @@
       const data = await res.json();
       const connected = Boolean(data?.database?.connected);
       const configured = Boolean(data?.database?.configured);
+      const schemaReady = data?.database?.schemaReady !== false;
+      dbSchemaReady = schemaReady;
 
       const dot = $('#dbDot');
       const pillText = $('#dbPillText');
       const topStatus = $('#topDbStatus');
 
-      if (connected) {
+      if (connected && schemaReady) {
         dot.className = 'db-dot connected';
         pillText.textContent = 'MySQL Live';
         topStatus.textContent = 'ONLINE (MYSQL CONNECTED)';
+      } else if (connected) {
+        dot.className = 'db-dot demo';
+        pillText.textContent = 'MySQL Live · schema pending';
+        topStatus.textContent = 'MYSQL CONNECTED (MIGRATIONS PENDING)';
       } else if (configured) {
         dot.className = 'db-dot demo';
         pillText.textContent = 'MySQL Unreachable';
@@ -1113,7 +1132,7 @@
   // Dashboard views: Orders / Cashbook & Reports / Catalog Groups
   // ---------------------------------------------------------------------------
   function setActiveView(view) {
-    const target = ['orders', 'accounting', 'catalog'].includes(view) ? view : 'orders';
+    const target = ['orders', 'accounting', 'artists', 'product'].includes(view) ? view : 'orders';
     activeView = target;
 
     $$('[data-view-panel]').forEach((panel) => {
@@ -1125,7 +1144,8 @@
       tab.setAttribute('aria-selected', String(isActive));
     });
 
-    if (target === 'catalog') setCatalogTab(catalogTab);
+    if (target === 'artists') setArtistTab(artistGroupTab);
+    if (target === 'product') loadProductSetup();
     if (target === 'accounting') refreshAccounting();
   }
 
@@ -1140,110 +1160,146 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Catalog groups
+  // Artist & Group Management
+  //
+  // This view owns two related resources: the group (hero images, focal crops, eyebrow, store
+  // visibility, ordering) and its members (name, portrait, visibility, ordering). Images are
+  // uploaded as data URLs and stored by the server in Cloudinary or the local fallback; only the
+  // resulting URL is persisted in MySQL.
   // ---------------------------------------------------------------------------
-  async function loadCatalogGroups() {
-    const tbody = $('#catalogGroupsBody');
-    const note = $('#catalogSourceNote');
-    tbody.innerHTML = '<tr><td colspan="6" class="table-loading">Loading catalog groups...</td></tr>';
+  function setArtistTab(tab) {
+    const target = ['groups', 'members'].includes(tab) ? tab : 'groups';
+    artistGroupTab = target;
+
+    $$('[data-artist-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.artistPanel !== target;
+    });
+    $$('#artistSubtabs .catalog-subtab').forEach((button) => {
+      const isActive = button.dataset.artistTab === target;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-selected', String(isActive));
+    });
+
+    if (target === 'groups') loadArtistGroups();
+    if (target === 'members') loadArtistMembers();
+  }
+
+  $$('#artistSubtabs .catalog-subtab').forEach((button) => {
+    button.addEventListener('click', () => setArtistTab(button.dataset.artistTab));
+  });
+
+  async function loadArtistGroups() {
+    const tbody = $('#artistGroupsBody');
+    const note = $('#artistGroupsNote');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading artist groups...</td></tr>';
 
     try {
       const response = await adminFetch('/api/admin/catalog/groups');
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Catalog groups could not be loaded.');
-      catalogGroups = data.groups || [];
-      renderCatalogGroups();
-      const live = catalogGroups.filter((group) => group.isActive).length;
-      note.textContent = `${catalogGroups.length} collection${catalogGroups.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
+      if (!response.ok) throw new Error(data.message || 'Artist groups could not be loaded.');
+      artistGroups = data.groups || [];
+      renderArtistGroups();
+      const live = artistGroups.filter((group) => group.isActive).length;
+      note.textContent = `${artistGroups.length} group${artistGroups.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
     } catch (error) {
-      catalogGroups = [];
-      tbody.innerHTML = `<tr><td colspan="6" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
-      note.textContent = 'Catalog management needs the MySQL connection. The storefront keeps using the bundled catalogue.';
+      artistGroups = [];
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = databaseMessage(error, 'Artist groups');
     }
   }
 
-  // Only the upload endpoint's own paths may be used as a CSS background.
-  function safeImageUrl(url) {
-    return /^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/.test(String(url || '')) ? String(url) : '';
-  }
-
-  function renderCatalogGroups() {
-    const tbody = $('#catalogGroupsBody');
-    if (!catalogGroups.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="table-empty">No catalog groups yet. Add the first collection.</td></tr>';
+  function renderArtistGroups() {
+    const tbody = $('#artistGroupsBody');
+    if (!artistGroups.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No groups yet. Add the first artist or group.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = catalogGroups.map((group, index) => {
-      const thumb = safeImageUrl(group.imageUrl);
+    tbody.innerHTML = artistGroups.map((group, index) => {
+      const cover = safeImageUrl(group.imageUrl);
+      const hero = safeImageUrl(group.heroImageUrl);
       return `
-      <tr data-group-row="${group.id}">
+      <tr data-artist-group-row="${group.id}">
         <td class="catalog-order-cell">
           <span class="catalog-order-index">${String(index + 1).padStart(2, '0')}</span>
           <span class="catalog-order-controls">
-            <button type="button" class="icon-button catalog-move" data-move="-1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="icon-button catalog-move" data-move="1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} down" ${index === catalogGroups.length - 1 ? 'disabled' : ''}>↓</button>
+            <button type="button" class="icon-button catalog-move" data-move-artist-group="-1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button type="button" class="icon-button catalog-move" data-move-artist-group="1" data-group-id="${group.id}" aria-label="Move ${escapeHtml(group.name)} down" ${index === artistGroups.length - 1 ? 'disabled' : ''}>↓</button>
           </span>
         </td>
         <td class="customer-cell">
           <span class="catalog-group-name">
-            ${thumb
-              ? `<span class="catalog-thumb" style="background-image:url('${thumb}')" aria-hidden="true"></span>`
+            ${cover
+              ? `<span class="catalog-thumb" style="background-image:url('${cover}')" aria-hidden="true"></span>`
               : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
             <strong>${escapeHtml(group.name)}</strong>
           </span>
           <span>${escapeHtml(group.tagline || 'No tagline')}</span>
         </td>
         <td><code class="catalog-slug">${escapeHtml(group.slug)}</code></td>
-        <td class="catalog-description-cell">${escapeHtml((group.description || '—').slice(0, 90))}</td>
+        <td class="catalog-description-cell">${escapeHtml(group.eyebrow || 'Default eyebrow')}</td>
+        <td>
+          <span class="artist-image-flag${cover ? ' is-set' : ''}">Cover</span>
+          <span class="artist-image-flag${hero ? ' is-set' : ''}">Hero</span>
+        </td>
         <td>
           <label class="toggle-switch toggle-switch-inline">
-            <input type="checkbox" data-toggle-group="${group.id}" ${group.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(group.name)} on the storefront" />
+            <input type="checkbox" data-toggle-artist-group="${group.id}" ${group.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(group.name)} on the storefront" />
             <span class="toggle-track" aria-hidden="true"></span>
             <span class="toggle-label">${group.isActive ? 'Live' : 'Hidden'}</span>
           </label>
         </td>
-        <td>
-          <button type="button" class="button button-outline button-small" data-edit-group="${group.id}">Edit</button>
+        <td class="artist-row-actions">
+          <button type="button" class="button button-outline button-small" data-edit-artist-group="${group.id}">Edit</button>
+          <button type="button" class="text-link" data-view-members-group="${group.id}">Members</button>
         </td>
-      </tr>
-    `;
+      </tr>`;
     }).join('');
 
-    tbody.querySelectorAll('[data-edit-group]').forEach((button) => {
-      button.addEventListener('click', () => openGroupModal(Number(button.dataset.editGroup)));
+    tbody.querySelectorAll('[data-edit-artist-group]').forEach((button) => {
+      button.addEventListener('click', () => openArtistGroupModal(Number(button.dataset.editArtistGroup)));
     });
-    tbody.querySelectorAll('[data-toggle-group]').forEach((input) => {
-      input.addEventListener('change', () => toggleGroup(Number(input.dataset.toggleGroup), input.checked));
+    tbody.querySelectorAll('[data-view-members-group]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const groupId = String(button.dataset.viewMembersGroup);
+        const filter = $('#memberGroupFilter');
+        if (filter) filter.value = groupId;
+        setArtistTab('members');
+        artistMembers = [];
+        loadArtistMembers();
+      });
     });
-    tbody.querySelectorAll('[data-move]').forEach((button) => {
-      button.addEventListener('click', () => moveGroup(Number(button.dataset.groupId), Number(button.dataset.move)));
+    tbody.querySelectorAll('[data-toggle-artist-group]').forEach((input) => {
+      input.addEventListener('change', () => toggleArtistGroup(Number(input.dataset.toggleArtistGroup), input.checked));
+    });
+    tbody.querySelectorAll('[data-move-artist-group]').forEach((button) => {
+      button.addEventListener('click', () => moveArtistGroup(Number(button.dataset.groupId), Number(button.dataset.moveArtistGroup)));
     });
   }
 
-  async function toggleGroup(id, isActive) {
+  async function toggleArtistGroup(id, isActive) {
     try {
       const response = await adminFetch(`/api/admin/catalog/groups/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ isActive }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Collection could not be updated.');
-      await loadCatalogGroups();
-      showToast(isActive ? 'Collection published to the storefront.' : 'Collection hidden from the storefront.');
+      if (!response.ok) throw new Error(data.message || 'Group could not be updated.');
+      await loadArtistGroups();
+      showToast(isActive ? 'Group published to the storefront.' : 'Group hidden from the storefront.');
     } catch (error) {
-      showToast(`Catalog error: ${error.message}`);
-      await loadCatalogGroups();
+      showToast(`Artist error: ${error.message}`);
+      await loadArtistGroups();
     }
   }
 
-  async function moveGroup(id, direction) {
-    const index = catalogGroups.findIndex((group) => group.id === id);
+  async function moveArtistGroup(id, direction) {
+    const index = artistGroups.findIndex((group) => group.id === id);
     if (index < 0) return;
-    const neighbour = catalogGroups[index + direction];
+    const current = artistGroups[index];
+    const neighbour = artistGroups[index + direction];
     if (!neighbour) return;
 
-    const current = catalogGroups[index];
     const updates = current.sortOrder === neighbour.sortOrder
       ? [[current.id, neighbour.sortOrder + (direction > 0 ? 1 : -1)]]
       : [[current.id, neighbour.sortOrder], [neighbour.id, current.sortOrder]];
@@ -1255,45 +1311,29 @@
           body: JSON.stringify({ sortOrder }),
         });
       }
-      await loadCatalogGroups();
+      await loadArtistGroups();
     } catch (error) {
       showToast(`Reorder error: ${error.message}`);
     }
   }
 
-  function openGroupModal(groupId) {
-    const group = groupId ? catalogGroups.find((row) => row.id === groupId) : null;
-    $('#groupFormError').hidden = true;
-    $('#groupForm').reset();
-    $('#groupFormId').value = group ? String(group.id) : '';
-    $('#groupName').value = group ? group.name : '';
-    $('#groupSlug').value = group ? group.slug : '';
-    $('#groupTagline').value = group ? group.tagline : '';
-    $('#groupDescription').value = group ? group.description : '';
-    $('#groupSortOrder').value = String(group ? group.sortOrder : catalogGroups.length);
-    $('#groupIsActive').checked = group ? Boolean(group.isActive) : true;
-    $('#groupModalEyebrow').textContent = group ? 'EDIT COLLECTION' : 'NEW COLLECTION';
-    $('#groupModalTitle').textContent = group ? group.name : 'Add group';
-    $('#groupFormSubmit').textContent = group ? 'Save changes' : 'Create group';
+  const FOCAL_VALUES = ['50% 50%', '50% 20%', '50% 80%', '20% 50%', '80% 50%', '20% 20%', '80% 20%', '20% 80%', '80% 80%'];
 
-    pendingImageData = null;
-    pendingImageRemoval = false;
-    $('#groupImageInput').value = '';
-    $('#groupImageNote').textContent = '';
-    $('#groupImageNote').hidden = true;
-    renderGroupImagePreview(group ? group.imageUrl : '');
-
-    lastFocusedElement = document.activeElement;
-    $('#groupModalBackdrop').hidden = false;
-    $('#groupName').focus();
+  function setFocalSelect(select, value) {
+    if (!select) return;
+    const target = String(value || '50% 50%');
+    select.innerHTML = FOCAL_VALUES
+      .map((focal) => `<option value="${focal}">${focal}</option>`)
+      .join('');
+    select.value = FOCAL_VALUES.includes(target) ? target : '50% 50%';
   }
 
-  function renderGroupImagePreview(source) {
-    const preview = $('#groupImagePreview');
-    const thumb = $('#groupImageThumb');
+  function renderArtistImagePreview(previewId, thumbId, source) {
+    const preview = $(`#${previewId}`);
+    const thumb = $(`#${thumbId}`);
+    if (!preview || !thumb) return;
     const value = String(source || '');
     const safe = value.startsWith('data:image/') ? value : safeImageUrl(value);
-
     if (safe) {
       thumb.src = safe;
       preview.hidden = false;
@@ -1303,10 +1343,541 @@
     }
   }
 
-  /**
-   * Downscales the chosen photo in the browser before upload: the server only ever receives a
-   * validated, reasonably sized WebP/JPEG data URL.
-   */
+  function setImageNote(noteId, message) {
+    const note = $(`#${noteId}`);
+    if (!note) return;
+    if (!message) {
+      note.hidden = true;
+      note.textContent = '';
+      return;
+    }
+    note.hidden = false;
+    note.textContent = message;
+  }
+
+  function openArtistGroupModal(groupId) {
+    const group = groupId ? artistGroups.find((row) => row.id === groupId) : null;
+    $('#artistGroupFormError').hidden = true;
+    $('#artistGroupForm').reset();
+    $('#artistGroupFormId').value = group ? String(group.id) : '';
+    $('#artistGroupName').value = group ? group.name : '';
+    $('#artistGroupSlug').value = group ? group.slug : '';
+    $('#artistGroupEyebrow').value = group ? group.eyebrow : '';
+    $('#artistGroupTagline').value = group ? group.tagline : '';
+    $('#artistGroupDescription').value = group ? group.description : '';
+    $('#artistGroupSortOrder').value = String(group ? group.sortOrder : artistGroups.length);
+    $('#artistGroupIsActive').checked = group ? Boolean(group.isActive) : true;
+    setFocalSelect($('#artistCoverFocal'), group ? group.coverFocal : '50% 50%');
+    setFocalSelect($('#artistHeroFocal'), group ? group.heroFocal : '50% 50%');
+    $('#artistGroupModalEyebrow').textContent = group ? 'EDIT GROUP' : 'NEW GROUP';
+    $('#artistGroupModalTitle').textContent = group ? group.name : 'Add group';
+    $('#artistGroupFormSubmit').textContent = group ? 'Save changes' : 'Create group';
+    $('#artistGroupDelete').hidden = !group;
+
+    artistPendingCover = null;
+    artistPendingCoverRemoval = false;
+    artistPendingHero = null;
+    artistPendingHeroRemoval = false;
+    $('#artistCoverInput').value = '';
+    $('#artistHeroInput').value = '';
+    setImageNote('artistCoverNote', '');
+    setImageNote('artistHeroNote', '');
+    renderArtistImagePreview('artistCoverPreview', 'artistCoverThumb', group ? group.imageUrl : '');
+    renderArtistImagePreview('artistHeroPreview', 'artistHeroThumb', group ? group.heroImageUrl : '');
+
+    lastFocusedElement = document.activeElement;
+    $('#artistGroupModalBackdrop').hidden = false;
+    $('#artistGroupModal').focus();
+    $('#artistGroupName').focus();
+  }
+
+  function closeArtistGroupModal() {
+    $('#artistGroupModalBackdrop').hidden = true;
+    artistPendingCover = null;
+    artistPendingCoverRemoval = false;
+    artistPendingHero = null;
+    artistPendingHeroRemoval = false;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+
+  $('#artistCoverInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('artistCoverNote', 'Preparing image…');
+    try {
+      artistPendingCover = await readImageFile(file);
+      artistPendingCoverRemoval = false;
+      renderArtistImagePreview('artistCoverPreview', 'artistCoverThumb', artistPendingCover);
+      setImageNote('artistCoverNote', `Ready to upload · about ${Math.round((artistPendingCover.length * 0.75) / 1024)} KB after resizing.`);
+    } catch (error) {
+      artistPendingCover = null;
+      setImageNote('artistCoverNote', error.message);
+      $('#artistCoverInput').value = '';
+    }
+  });
+
+  $('#artistCoverRemove').addEventListener('click', () => {
+    artistPendingCover = null;
+    artistPendingCoverRemoval = true;
+    $('#artistCoverInput').value = '';
+    renderArtistImagePreview('artistCoverPreview', 'artistCoverThumb', '');
+    setImageNote('artistCoverNote', 'The cover will be removed when you save.');
+  });
+
+  $('#artistHeroInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('artistHeroNote', 'Preparing image…');
+    try {
+      artistPendingHero = await readImageFile(file);
+      artistPendingHeroRemoval = false;
+      renderArtistImagePreview('artistHeroPreview', 'artistHeroThumb', artistPendingHero);
+      setImageNote('artistHeroNote', `Ready to upload · about ${Math.round((artistPendingHero.length * 0.75) / 1024)} KB after resizing.`);
+    } catch (error) {
+      artistPendingHero = null;
+      setImageNote('artistHeroNote', error.message);
+      $('#artistHeroInput').value = '';
+    }
+  });
+
+  $('#artistHeroRemove').addEventListener('click', () => {
+    artistPendingHero = null;
+    artistPendingHeroRemoval = true;
+    $('#artistHeroInput').value = '';
+    renderArtistImagePreview('artistHeroPreview', 'artistHeroThumb', '');
+    setImageNote('artistHeroNote', 'The hero image will be removed when you save.');
+  });
+
+  /** Uploads (or clears) one group image, returning the refreshed group. */
+  async function saveGroupImage(groupId, kind, dataUrl) {
+    const url = `/api/admin/catalog/groups/${groupId}/image${kind === 'hero' ? '?kind=hero' : ''}`;
+    const response = dataUrl === null
+      ? await adminFetch(url, { method: 'DELETE' })
+      : await adminFetch(url, { method: 'POST', body: JSON.stringify({ dataUrl }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || 'The image could not be saved.');
+    return body.group;
+  }
+
+  $('#addArtistGroupBtn').addEventListener('click', () => openArtistGroupModal(null));
+  $('#refreshArtistGroupsBtn').addEventListener('click', () => loadArtistGroups());
+  $('#artistGroupModalClose').addEventListener('click', closeArtistGroupModal);
+  $('#artistGroupFormCancel').addEventListener('click', closeArtistGroupModal);
+  $('#artistGroupModalBackdrop').addEventListener('click', (event) => {
+    if (event.target === $('#artistGroupModalBackdrop')) closeArtistGroupModal();
+  });
+
+  $('#artistGroupForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#artistGroupFormId').value;
+    const errorEl = $('#artistGroupFormError');
+    const payload = {
+      name: $('#artistGroupName').value,
+      slug: $('#artistGroupSlug').value,
+      eyebrow: $('#artistGroupEyebrow').value,
+      tagline: $('#artistGroupTagline').value,
+      description: $('#artistGroupDescription').value,
+      coverFocal: $('#artistCoverFocal').value,
+      heroFocal: $('#artistHeroFocal').value,
+      sortOrder: Number($('#artistGroupSortOrder').value),
+      isActive: $('#artistGroupIsActive').checked,
+    };
+
+    errorEl.hidden = true;
+    $('#artistGroupFormSubmit').disabled = true;
+
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/catalog/groups/${id}` : '/api/admin/catalog/groups',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Group could not be saved.');
+
+      let saved = data.group;
+      if (artistPendingCover) saved = await saveGroupImage(saved.id, 'cover', artistPendingCover);
+      else if (artistPendingCoverRemoval) saved = await saveGroupImage(saved.id, 'cover', null);
+      if (artistPendingHero) saved = await saveGroupImage(saved.id, 'hero', artistPendingHero);
+      else if (artistPendingHeroRemoval) saved = await saveGroupImage(saved.id, 'hero', null);
+
+      closeArtistGroupModal();
+      await loadArtistGroups();
+      artistMembers = [];
+      showToast(id ? 'Group updated.' : 'Group created.');
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      $('#artistGroupFormSubmit').disabled = false;
+    }
+  });
+
+  $('#artistGroupDelete').addEventListener('click', async () => {
+    const id = $('#artistGroupFormId').value;
+    if (!id) return;
+    const group = artistGroups.find((row) => String(row.id) === String(id));
+    const name = group ? group.name : 'this group';
+    const memberCount = artistMembers.filter((member) => String(member.groupId) === String(id)).length;
+    const warning = memberCount > 0
+      ? `\n\nIts ${memberCount} member${memberCount === 1 ? '' : 's'} will be deleted too.`
+      : '';
+    if (!window.confirm(`Delete "${name}" permanently?${warning}\n\nThis cannot be undone.`)) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/catalog/groups/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Group could not be deleted.');
+      closeArtistGroupModal();
+      await loadArtistGroups();
+      artistMembers = [];
+      showToast(`Deleted "${name}".`);
+    } catch (error) {
+      showToast(`Delete error: ${error.message}`);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Group members
+  // ---------------------------------------------------------------------------
+  async function ensureArtistGroupsLoaded() {
+    if (artistGroups.length) return;
+    const response = await adminFetch('/api/admin/catalog/groups');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Groups could not be loaded.');
+    artistGroups = data.groups || [];
+  }
+
+  /** Keeps the member table filter and the member modal picker on the same group list. */
+  function syncMemberGroupSelectors() {
+    const options = artistGroups
+      .map((group) => `<option value="${group.id}">${escapeHtml(group.name)}${group.isActive ? '' : ' (hidden)'}</option>`)
+      .join('');
+
+    const filter = $('#memberGroupFilter');
+    if (filter) {
+      const selected = filter.value;
+      filter.innerHTML = `<option value="">All groups</option>${options}`;
+      filter.value = selected;
+      if (filter.value !== selected) filter.value = '';
+    }
+
+    const picker = $('#artistMemberGroup');
+    if (picker) {
+      const current = picker.value;
+      picker.innerHTML = options;
+      if (current) picker.value = current;
+    }
+  }
+
+  function groupName(groupId) {
+    const group = artistGroups.find((row) => String(row.id) === String(groupId));
+    return group ? group.name : '—';
+  }
+
+  async function loadArtistMembers() {
+    const tbody = $('#artistMembersBody');
+    const note = $('#artistMembersNote');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading group members...</td></tr>';
+
+    try {
+      await ensureArtistGroupsLoaded();
+      syncMemberGroupSelectors();
+
+      const groupId = $('#memberGroupFilter') ? $('#memberGroupFilter').value : '';
+      const url = groupId
+        ? `/api/admin/catalog/members?groupId=${encodeURIComponent(groupId)}`
+        : '/api/admin/catalog/members';
+      const response = await adminFetch(url);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Members could not be loaded.');
+
+      artistMembers = data.members || [];
+      renderArtistMembers();
+      const live = artistMembers.filter((member) => member.isActive).length;
+      note.textContent = `${artistMembers.length} member${artistMembers.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
+    } catch (error) {
+      artistMembers = [];
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = databaseMessage(error, 'Members');
+    }
+  }
+
+  function renderArtistMembers() {
+    const tbody = $('#artistMembersBody');
+    if (!artistMembers.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No members here yet. Add the first member.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = artistMembers.map((member, index) => {
+      const thumb = safeImageUrl(member.portraitUrl);
+      return `
+      <tr data-artist-member-row="${member.id}">
+        <td class="catalog-order-cell">
+          <span class="catalog-order-index">${String(index + 1).padStart(2, '0')}</span>
+          <span class="catalog-order-controls">
+            <button type="button" class="icon-button catalog-move" data-move-member="-1" data-member-id="${member.id}" aria-label="Move ${escapeHtml(member.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
+            <button type="button" class="icon-button catalog-move" data-move-member="1" data-member-id="${member.id}" aria-label="Move ${escapeHtml(member.name)} down" ${index === artistMembers.length - 1 ? 'disabled' : ''}>↓</button>
+          </span>
+        </td>
+        <td class="customer-cell">
+          <span class="catalog-group-name">
+            ${thumb
+              ? `<span class="catalog-thumb" style="background-image:url('${thumb}')" aria-hidden="true"></span>`
+              : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
+            <strong>${escapeHtml(member.name)}</strong>
+          </span>
+        </td>
+        <td>${escapeHtml(groupName(member.groupId))}</td>
+        <td><code class="catalog-slug">${escapeHtml(member.slug)}</code></td>
+        <td>
+          <span class="artist-image-flag${safeImageUrl(member.designImageUrl) ? ' is-set' : ''}">Artwork</span>
+        </td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-member="${member.id}" ${member.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(member.name)} on the storefront" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${member.isActive ? 'Live' : 'Hidden'}</span>
+          </label>
+        </td>
+        <td>
+          <button type="button" class="button button-outline button-small" data-edit-member="${member.id}">Edit</button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-edit-member]').forEach((button) => {
+      button.addEventListener('click', () => openArtistMemberModal(Number(button.dataset.editMember)));
+    });
+    tbody.querySelectorAll('[data-toggle-member]').forEach((input) => {
+      input.addEventListener('change', () => toggleMember(Number(input.dataset.toggleMember), input.checked));
+    });
+    tbody.querySelectorAll('[data-move-member]').forEach((button) => {
+      button.addEventListener('click', () => moveMember(Number(button.dataset.memberId), Number(button.dataset.moveMember)));
+    });
+  }
+
+  async function toggleMember(id, isActive) {
+    try {
+      const response = await adminFetch(`/api/admin/catalog/members/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Member could not be updated.');
+      await loadArtistMembers();
+      showToast(isActive ? 'Member published to the storefront.' : 'Member hidden from the storefront.');
+    } catch (error) {
+      showToast(`Member error: ${error.message}`);
+      await loadArtistMembers();
+    }
+  }
+
+  async function moveMember(id, direction) {
+    const index = artistMembers.findIndex((member) => member.id === id);
+    if (index < 0) return;
+    const current = artistMembers[index];
+    const neighbour = artistMembers[index + direction];
+    // Sort order is per group, so never swap across a group boundary.
+    if (!neighbour || String(neighbour.groupId) !== String(current.groupId)) return;
+
+    const updates = current.sortOrder === neighbour.sortOrder
+      ? [[current.id, neighbour.sortOrder + (direction > 0 ? 1 : -1)]]
+      : [[current.id, neighbour.sortOrder], [neighbour.id, current.sortOrder]];
+
+    try {
+      for (const [memberId, sortOrder] of updates) {
+        await adminFetch(`/api/admin/catalog/members/${memberId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ sortOrder }),
+        });
+      }
+      await loadArtistMembers();
+    } catch (error) {
+      showToast(`Reorder error: ${error.message}`);
+    }
+  }
+
+  function openArtistMemberModal(memberId) {
+    const member = memberId ? artistMembers.find((row) => row.id === memberId) : null;
+    if (!artistGroups.length) {
+      showToast('Load the groups first.');
+      return;
+    }
+
+    syncMemberGroupSelectors();
+
+    $('#artistMemberFormError').hidden = true;
+    $('#artistMemberForm').reset();
+    $('#artistMemberFormId').value = member ? String(member.id) : '';
+    $('#artistMemberName').value = member ? member.name : '';
+    $('#artistMemberSlug').value = member ? member.slug : '';
+    $('#artistMemberGroup').value = String(member ? member.groupId : ($('#memberGroupFilter').value || artistGroups[0].id));
+    $('#artistMemberSortOrder').value = String(member ? member.sortOrder : 0);
+    $('#artistMemberIsActive').checked = member ? Boolean(member.isActive) : true;
+    $('#artistMemberModalEyebrow').textContent = member ? 'EDIT MEMBER' : 'NEW MEMBER';
+    $('#artistMemberModalTitle').textContent = member ? member.name : 'Add member';
+    $('#artistMemberFormSubmit').textContent = member ? 'Save changes' : 'Create member';
+    $('#artistMemberDelete').hidden = !member;
+
+    artistPendingPortrait = null;
+    artistPendingPortraitRemoval = false;
+    $('#artistPortraitInput').value = '';
+    setImageNote('artistPortraitNote', '');
+    renderArtistImagePreview('artistPortraitPreview', 'artistPortraitThumb', member ? member.portraitUrl : '');
+
+    artistPendingDesign = null;
+    artistPendingDesignRemoval = false;
+    $('#artistDesignInput').value = '';
+    setImageNote('artistDesignNote', '');
+    renderArtistImagePreview('artistDesignPreview', 'artistDesignThumb', member ? member.designImageUrl : '');
+
+    lastFocusedElement = document.activeElement;
+    $('#artistMemberModalBackdrop').hidden = false;
+    $('#artistMemberModal').focus();
+    $('#artistMemberName').focus();
+  }
+
+  function closeArtistMemberModal() {
+    $('#artistMemberModalBackdrop').hidden = true;
+    artistPendingPortrait = null;
+    artistPendingPortraitRemoval = false;
+    artistPendingDesign = null;
+    artistPendingDesignRemoval = false;
+    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+
+  $('#artistPortraitInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('artistPortraitNote', 'Preparing image…');
+    try {
+      artistPendingPortrait = await readImageFile(file);
+      artistPendingPortraitRemoval = false;
+      renderArtistImagePreview('artistPortraitPreview', 'artistPortraitThumb', artistPendingPortrait);
+      setImageNote('artistPortraitNote', `Ready to upload · about ${Math.round((artistPendingPortrait.length * 0.75) / 1024)} KB after resizing.`);
+    } catch (error) {
+      artistPendingPortrait = null;
+      setImageNote('artistPortraitNote', error.message);
+      $('#artistPortraitInput').value = '';
+    }
+  });
+
+  $('#artistPortraitRemove').addEventListener('click', () => {
+    artistPendingPortrait = null;
+    artistPendingPortraitRemoval = true;
+    $('#artistPortraitInput').value = '';
+    renderArtistImagePreview('artistPortraitPreview', 'artistPortraitThumb', '');
+    setImageNote('artistPortraitNote', 'The portrait will be removed when you save.');
+  });
+
+  $('#artistDesignInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('artistDesignNote', 'Preparing image…');
+    try {
+      artistPendingDesign = await readImageFile(file);
+      artistPendingDesignRemoval = false;
+      renderArtistImagePreview('artistDesignPreview', 'artistDesignThumb', artistPendingDesign);
+      setImageNote('artistDesignNote', `Ready to upload · about ${Math.round((artistPendingDesign.length * 0.75) / 1024)} KB after resizing.`);
+    } catch (error) {
+      artistPendingDesign = null;
+      setImageNote('artistDesignNote', error.message);
+      $('#artistDesignInput').value = '';
+    }
+  });
+
+  $('#artistDesignRemove').addEventListener('click', () => {
+    artistPendingDesign = null;
+    artistPendingDesignRemoval = true;
+    $('#artistDesignInput').value = '';
+    renderArtistImagePreview('artistDesignPreview', 'artistDesignThumb', '');
+    setImageNote('artistDesignNote', 'The keychain artwork will be removed when you save.');
+  });
+
+  $('#addMemberBtn').addEventListener('click', () => openArtistMemberModal(null));
+  $('#refreshMembersBtn').addEventListener('click', () => loadArtistMembers());
+  $('#memberGroupFilter').addEventListener('change', () => loadArtistMembers());
+  $('#artistMemberModalClose').addEventListener('click', closeArtistMemberModal);
+  $('#artistMemberFormCancel').addEventListener('click', closeArtistMemberModal);
+  $('#artistMemberModalBackdrop').addEventListener('click', (event) => {
+    if (event.target === $('#artistMemberModalBackdrop')) closeArtistMemberModal();
+  });
+
+  $('#artistMemberForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#artistMemberFormId').value;
+    const errorEl = $('#artistMemberFormError');
+    const payload = {
+      groupId: Number($('#artistMemberGroup').value),
+      name: $('#artistMemberName').value,
+      slug: $('#artistMemberSlug').value,
+      sortOrder: Number($('#artistMemberSortOrder').value),
+      isActive: $('#artistMemberIsActive').checked,
+    };
+    // The portrait and keychain artwork are sent with the row so a failed insert never orphans
+    // an upload.
+    if (artistPendingPortrait) payload.portraitUrl = artistPendingPortrait;
+    else if (artistPendingPortraitRemoval) payload.portraitUrl = null;
+    if (artistPendingDesign) payload.designImageUrl = artistPendingDesign;
+    else if (artistPendingDesignRemoval) payload.designImageUrl = null;
+
+    errorEl.hidden = true;
+    $('#artistMemberFormSubmit').disabled = true;
+
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/catalog/members/${id}` : '/api/admin/catalog/members',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Member could not be saved.');
+
+      closeArtistMemberModal();
+      await loadArtistMembers();
+      showToast(id ? 'Member updated.' : 'Member created.');
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.hidden = false;
+    } finally {
+      $('#artistMemberFormSubmit').disabled = false;
+    }
+  });
+
+  $('#artistMemberDelete').addEventListener('click', async () => {
+    const id = $('#artistMemberFormId').value;
+    if (!id) return;
+    const member = artistMembers.find((row) => String(row.id) === String(id));
+    const name = member ? member.name : 'this member';
+    if (!window.confirm(`Delete "${name}" permanently?\n\nThis cannot be undone.`)) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/catalog/members/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Member could not be deleted.');
+      closeArtistMemberModal();
+      await loadArtistMembers();
+      showToast(`Deleted "${name}".`);
+    } catch (error) {
+      showToast(`Delete error: ${error.message}`);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Shared image helpers (group images, member portraits and keychain artwork)
+  // ---------------------------------------------------------------------------
+  // Only URLs produced by the upload endpoint may be used as a CSS background: the local
+  // fallback directory and Cloudinary delivery URLs (used on Railway).
+  const LOCAL_UPLOAD_PATH = /^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/;
+  const CLOUDINARY_PATH = /^https:\/\/res\.cloudinary\.com\/[a-z0-9-]+\/image\/upload\/[A-Za-z0-9._~\-/]+$/;
+
+  function safeImageUrl(url) {
+    const value = String(url || '');
+    return LOCAL_UPLOAD_PATH.test(value) || CLOUDINARY_PATH.test(value) ? value : '';
+  }
+
   async function readImageFile(file) {
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
       throw new Error('Choose a PNG, JPEG or WebP image.');
@@ -1338,437 +1909,87 @@
     }
   }
 
-  $('#groupImageInput').addEventListener('change', async (event) => {
-    const file = event.target.files && event.target.files[0];
-    const note = $('#groupImageNote');
-    if (!file) return;
-
-    note.hidden = false;
-    note.textContent = 'Preparing image…';
-
+  // ---------------------------------------------------------------------------
+  // Product Setup — one global silhouette, shared base price and universal options
+  // ---------------------------------------------------------------------------
+  async function loadProductSettings() {
+    const note = $('#productSettingsNote');
+    if (note) note.textContent = 'Loading…';
     try {
-      pendingImageData = await readImageFile(file);
-      pendingImageRemoval = false;
-      renderGroupImagePreview(pendingImageData);
-      const kilobytes = Math.round((pendingImageData.length * 0.75) / 1024);
-      note.textContent = `Ready to upload · about ${kilobytes} KB after resizing.`;
+      const response = await adminFetch('/api/admin/product-settings');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Product settings could not be loaded.');
+      productSettings = data.product || null;
+      renderProductSettings();
+      if (note) note.textContent = 'These settings apply to every member immediately.';
     } catch (error) {
-      pendingImageData = null;
-      note.textContent = error.message;
-      $('#groupImageInput').value = '';
+      productSettings = null;
+      if (note) note.textContent = databaseMessage(error, 'Product settings');
     }
-  });
-
-  $('#groupImageRemove').addEventListener('click', () => {
-    pendingImageData = null;
-    pendingImageRemoval = true;
-    $('#groupImageInput').value = '';
-    renderGroupImagePreview('');
-    const note = $('#groupImageNote');
-    note.textContent = 'The image will be removed when you save.';
-    note.hidden = false;
-  });
-
-  function closeGroupModal() {
-    $('#groupModalBackdrop').hidden = true;
-    pendingImageData = null;
-    pendingImageRemoval = false;
-    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
-    lastFocusedElement = null;
   }
 
-  $('#addGroupBtn').addEventListener('click', () => openGroupModal(null));
-  $('#refreshCatalogBtn').addEventListener('click', () => loadCatalogGroups());
-  $('#groupModalClose').addEventListener('click', closeGroupModal);
-  $('#groupFormCancel').addEventListener('click', closeGroupModal);
-  $('#groupModalBackdrop').addEventListener('click', (event) => {
-    if (event.target === $('#groupModalBackdrop')) closeGroupModal();
-  });
+  function renderProductSettings() {
+    if (!productSettings) return;
+    const select = $('#baseModelSelect');
+    if (select) {
+      const models = Array.isArray(productSettings.baseModels) && productSettings.baseModels.length
+        ? productSettings.baseModels
+        : [{ key: 'heart', label: 'Heart' }, { key: 'star', label: 'Star' }, { key: 'bow', label: 'Ribbon' }];
+      select.innerHTML = models
+        .map((model) => `<option value="${escapeHtml(model.key)}">${escapeHtml(model.label)}</option>`)
+        .join('');
+      select.value = productSettings.baseModel || 'heart';
+    }
+    const price = $('#basePriceInput');
+    if (price) price.value = String(productSettings.basePrice ?? '');
+  }
 
-  $('#groupForm').addEventListener('submit', async (event) => {
+  async function saveProductSettings(event) {
     event.preventDefault();
-    const id = $('#groupFormId').value;
-    const errorEl = $('#groupFormError');
+    const button = $('#saveProductSettingsBtn');
+    const note = $('#productSettingsNote');
     const payload = {
-      name: $('#groupName').value,
-      slug: $('#groupSlug').value,
-      tagline: $('#groupTagline').value,
-      description: $('#groupDescription').value,
-      sortOrder: Number($('#groupSortOrder').value),
-      isActive: $('#groupIsActive').checked,
+      baseModel: $('#baseModelSelect').value,
+      basePrice: Number($('#basePriceInput').value),
     };
-
-    errorEl.hidden = true;
-    $('#groupFormSubmit').disabled = true;
-
-    try {
-      const response = await adminFetch(
-        id ? `/api/admin/catalog/groups/${id}` : '/api/admin/catalog/groups',
-        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Collection could not be saved.');
-
-      const saved = data.group;
-      if (pendingImageData && saved) {
-        const imageResponse = await adminFetch(`/api/admin/catalog/groups/${saved.id}/image`, {
-          method: 'POST',
-          body: JSON.stringify({ dataUrl: pendingImageData }),
-        });
-        const imageBody = await imageResponse.json().catch(() => ({}));
-        if (!imageResponse.ok) throw new Error(imageBody.message || 'The card image could not be uploaded.');
-      } else if (pendingImageRemoval && saved) {
-        const imageResponse = await adminFetch(`/api/admin/catalog/groups/${saved.id}/image`, { method: 'DELETE' });
-        if (!imageResponse.ok) {
-          const imageBody = await imageResponse.json().catch(() => ({}));
-          throw new Error(imageBody.message || 'The card image could not be removed.');
-        }
-      }
-
-      closeGroupModal();
-      await loadCatalogGroups();
-      showToast(id ? 'Collection updated.' : 'Collection created.');
-    } catch (error) {
-      errorEl.textContent = error.message;
-      errorEl.hidden = false;
-    } finally {
-      $('#groupFormSubmit').disabled = false;
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Catalog sub-tabs: Collections / Product Designs / Pricing
-  // ---------------------------------------------------------------------------
-  function setCatalogTab(tab) {
-    const target = ['groups', 'products', 'pricing'].includes(tab) ? tab : 'groups';
-    catalogTab = target;
-
-    $$('[data-catalog-panel]').forEach((panel) => {
-      panel.hidden = panel.dataset.catalogPanel !== target;
-    });
-    $$('#catalogSubtabs .catalog-subtab').forEach((button) => {
-      const isActive = button.dataset.catalogTab === target;
-      button.classList.toggle('is-active', isActive);
-      button.setAttribute('aria-selected', String(isActive));
-    });
-
-    if (target === 'groups' && !catalogGroups.length) loadCatalogGroups();
-    if (target === 'products') loadCatalogProducts();
-    if (target === 'pricing' && !pricingOptions.length) loadPricing();
-  }
-
-  $$('#catalogSubtabs .catalog-subtab').forEach((button) => {
-    button.addEventListener('click', () => setCatalogTab(button.dataset.catalogTab));
-  });
-
-  function fillTemplateSelect() {
-    const select = $('#productTemplate');
-    if (!select || select.options.length || !catalogTemplates.length) return;
-    select.innerHTML = catalogTemplates
-      .map((template) => `<option value="${template.templateKey}">${template.templateKey} · ${escapeHtml(template.name)}</option>`)
-      .join('');
-  }
-
-  /** Keeps the table filter and the modal picker on the same, current group list. */
-  function syncGroupSelectors() {
-    const options = catalogGroups
-      .map((group) => `<option value="${group.id}">${escapeHtml(group.name)}${group.isActive ? '' : ' (hidden)'}</option>`)
-      .join('');
-
-    const filter = $('#productGroupFilter');
-    if (filter) {
-      const selected = filter.value;
-      filter.innerHTML = `<option value="">All groups</option>${options}`;
-      filter.value = selected;
-      if (filter.value !== selected) filter.value = '';
-    }
-
-    const picker = $('#productGroup');
-    if (picker) {
-      const current = picker.value;
-      picker.innerHTML = options;
-      if (current) picker.value = current;
-    }
-  }
-
-  async function loadCatalogGroupsForProducts() {
-    if (catalogGroups.length) return;
-    const response = await adminFetch('/api/admin/catalog/groups');
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Collections could not be loaded.');
-    catalogGroups = data.groups || [];
-  }
-
-  async function loadCatalogProducts() {
-    const tbody = $('#catalogProductsBody');
-    const note = $('#productSourceNote');
-    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading product designs...</td></tr>';
-
-    try {
-      await loadCatalogGroupsForProducts();
-      syncGroupSelectors();
-
-      const groupId = $('#productGroupFilter') ? $('#productGroupFilter').value : '';
-      const url = groupId
-        ? `/api/admin/catalog/products?groupId=${encodeURIComponent(groupId)}`
-        : '/api/admin/catalog/products';
-      const response = await adminFetch(url);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Product designs could not be loaded.');
-
-      catalogProducts = data.products || [];
-      renderCatalogProducts();
-      const live = catalogProducts.filter((product) => product.isActive).length;
-      note.textContent = `${catalogProducts.length} design${catalogProducts.length === 1 ? '' : 's'} · ${live} visible on the storefront.`;
-    } catch (error) {
-      catalogProducts = [];
-      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
-      note.textContent = 'Product designs need the MySQL connection. The storefront keeps using the bundled catalogue.';
-    }
-  }
-
-  function renderCatalogProducts() {
-    const tbody = $('#catalogProductsBody');
-    if (!catalogProducts.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No designs here yet. Add the first product design.</td></tr>';
+    if (!Number.isInteger(payload.basePrice) || payload.basePrice < 0) {
+      showToast('Base price must be a whole number of at least 0.');
+      $('#basePriceInput').focus();
       return;
     }
-
-    tbody.innerHTML = catalogProducts.map((product, index) => {
-      const thumb = safeImageUrl(product.imageUrl);
-      return `
-      <tr data-product-row="${product.id}">
-        <td class="catalog-order-cell">
-          <span class="catalog-order-index">${String(index + 1).padStart(2, '0')}</span>
-          <span class="catalog-order-controls">
-            <button type="button" class="icon-button catalog-move" data-move-product="-1" data-product-id="${product.id}" aria-label="Move ${escapeHtml(product.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
-            <button type="button" class="icon-button catalog-move" data-move-product="1" data-product-id="${product.id}" aria-label="Move ${escapeHtml(product.name)} down" ${index === catalogProducts.length - 1 ? 'disabled' : ''}>↓</button>
-          </span>
-        </td>
-        <td class="customer-cell">
-          <span class="catalog-group-name">
-            ${thumb
-              ? `<span class="catalog-thumb" style="background-image:url('${thumb}')" aria-hidden="true"></span>`
-              : '<span class="catalog-thumb is-empty" aria-hidden="true">◇</span>'}
-            <strong>${escapeHtml(product.name)}</strong>
-          </span>
-          <span><code class="catalog-slug">${escapeHtml(product.slug)}</code></span>
-        </td>
-        <td>${escapeHtml(product.groupName || '—')}</td>
-        <td><code class="catalog-slug">${escapeHtml(product.templateKey || '—')}</code></td>
-        <td class="amount-cell">${money(product.price)}</td>
-        <td>
-          <label class="toggle-switch toggle-switch-inline">
-            <input type="checkbox" data-toggle-product="${product.id}" ${product.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(product.name)} on the storefront" />
-            <span class="toggle-track" aria-hidden="true"></span>
-            <span class="toggle-label">${product.isActive ? 'Live' : 'Hidden'}</span>
-          </label>
-        </td>
-        <td>
-          <button type="button" class="button button-outline button-small" data-edit-product="${product.id}">Edit</button>
-        </td>
-      </tr>`;
-    }).join('');
-
-    tbody.querySelectorAll('[data-edit-product]').forEach((button) => {
-      button.addEventListener('click', () => openProductModal(Number(button.dataset.editProduct)));
-    });
-    tbody.querySelectorAll('[data-toggle-product]').forEach((input) => {
-      input.addEventListener('change', () => toggleProduct(Number(input.dataset.toggleProduct), input.checked));
-    });
-    tbody.querySelectorAll('[data-move-product]').forEach((button) => {
-      button.addEventListener('click', () => moveProduct(Number(button.dataset.productId), Number(button.dataset.moveProduct)));
-    });
-  }
-
-  async function toggleProduct(id, isActive) {
+    button.disabled = true;
+    if (note) note.textContent = 'Saving…';
     try {
-      const response = await adminFetch(`/api/admin/catalog/products/${id}`, {
+      const response = await adminFetch('/api/admin/product-settings', {
         method: 'PATCH',
-        body: JSON.stringify({ isActive }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Design could not be updated.');
-      await loadCatalogProducts();
-      showToast(isActive ? 'Design published to the storefront.' : 'Design hidden from the storefront.');
+      if (!response.ok) throw new Error(data.message || 'Product settings could not be saved.');
+      productSettings = data.product || null;
+      renderProductSettings();
+      if (note) note.textContent = 'Product settings saved.';
+      showToast('Product settings saved.');
+      pricingOptions = [];
+      await loadPricing();
     } catch (error) {
-      showToast(`Catalog error: ${error.message}`);
-      await loadCatalogProducts();
-    }
-  }
-
-  async function moveProduct(id, direction) {
-    const index = catalogProducts.findIndex((product) => product.id === id);
-    if (index < 0) return;
-    const current = catalogProducts[index];
-    const neighbour = catalogProducts[index + direction];
-    // Sort order is per collection, so never swap across a group boundary.
-    if (!neighbour || neighbour.groupId !== current.groupId) return;
-
-    const updates = current.sortOrder === neighbour.sortOrder
-      ? [[current.id, neighbour.sortOrder + (direction > 0 ? 1 : -1)]]
-      : [[current.id, neighbour.sortOrder], [neighbour.id, current.sortOrder]];
-
-    try {
-      for (const [productId, sortOrder] of updates) {
-        await adminFetch(`/api/admin/catalog/products/${productId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ sortOrder }),
-        });
-      }
-      await loadCatalogProducts();
-    } catch (error) {
-      showToast(`Reorder error: ${error.message}`);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Product design modal
-  // ---------------------------------------------------------------------------
-  function renderProductImagePreview(source) {
-    const preview = $('#productImagePreview');
-    const thumb = $('#productImageThumb');
-    const value = String(source || '');
-    const safe = value.startsWith('data:image/') ? value : safeImageUrl(value);
-
-    if (safe) {
-      thumb.src = safe;
-      preview.hidden = false;
-    } else {
-      thumb.removeAttribute('src');
-      preview.hidden = true;
-    }
-  }
-
-  function openProductModal(productId) {
-    const product = productId ? catalogProducts.find((row) => row.id === productId) : null;
-    if (!catalogGroups.length) {
-      showToast('Load the collections first.');
-      return;
-    }
-
-    fillTemplateSelect();
-    syncGroupSelectors();
-
-    $('#productFormError').hidden = true;
-    $('#productForm').reset();
-
-    $('#productFormId').value = product ? String(product.id) : '';
-    $('#productName').value = product ? product.name : '';
-    $('#productSlug').value = product ? product.key : '';
-    $('#productGroup').value = String(product ? product.groupId : ($('#productGroupFilter').value || catalogGroups[0].id));
-    $('#productTemplate').value = product ? product.templateKey : (templateKeys[0] || 'acrylic-keychain');
-    $('#productBasePrice').value = product ? String(product.price) : '';
-    $('#productDescription').value = product ? product.description : '';
-    $('#productSortOrder').value = String(product ? product.sortOrder : 0);
-    $('#productIsActive').checked = product ? Boolean(product.isActive) : true;
-
-    $('#productModalEyebrow').textContent = product ? 'EDIT DESIGN' : 'NEW DESIGN';
-    $('#productModalTitle').textContent = product ? product.name : 'Add product design';
-    $('#productFormSubmit').textContent = product ? 'Save changes' : 'Create design';
-
-    pendingProductImage = null;
-    pendingProductImageRemoval = false;
-    $('#productImageInput').value = '';
-    $('#productImageNote').textContent = '';
-    $('#productImageNote').hidden = true;
-    renderProductImagePreview(product ? product.imageUrl : '');
-
-    lastFocusedElement = document.activeElement;
-    $('#productModalBackdrop').hidden = false;
-    $('#productModal').focus();
-    $('#productName').focus();
-  }
-
-  function closeProductModal() {
-    $('#productModalBackdrop').hidden = true;
-    pendingProductImage = null;
-    pendingProductImageRemoval = false;
-    if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') lastFocusedElement.focus();
-    lastFocusedElement = null;
-  }
-
-  $('#productImageInput').addEventListener('change', async (event) => {
-    const file = event.target.files && event.target.files[0];
-    const note = $('#productImageNote');
-    if (!file) return;
-
-    note.hidden = false;
-    note.textContent = 'Preparing image…';
-
-    try {
-      pendingProductImage = await readImageFile(file);
-      pendingProductImageRemoval = false;
-      renderProductImagePreview(pendingProductImage);
-      const kilobytes = Math.round((pendingProductImage.length * 0.75) / 1024);
-      note.textContent = `Ready to upload · about ${kilobytes} KB after resizing.`;
-    } catch (error) {
-      pendingProductImage = null;
-      note.textContent = error.message;
-      $('#productImageInput').value = '';
-    }
-  });
-
-  $('#productImageRemove').addEventListener('click', () => {
-    pendingProductImage = null;
-    pendingProductImageRemoval = true;
-    $('#productImageInput').value = '';
-    renderProductImagePreview('');
-    const note = $('#productImageNote');
-    note.textContent = 'The image will be removed when you save.';
-    note.hidden = false;
-  });
-
-  $('#addProductBtn').addEventListener('click', () => openProductModal(null));
-  $('#refreshProductsBtn').addEventListener('click', () => loadCatalogProducts());
-  $('#productModalClose').addEventListener('click', closeProductModal);
-  $('#productFormCancel').addEventListener('click', closeProductModal);
-  $('#productModalBackdrop').addEventListener('click', (event) => {
-    if (event.target === $('#productModalBackdrop')) closeProductModal();
-  });
-  $('#productGroupFilter').addEventListener('change', () => loadCatalogProducts());
-
-  $('#productForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const id = $('#productFormId').value;
-    const errorEl = $('#productFormError');
-    const payload = {
-      groupId: Number($('#productGroup').value),
-      name: $('#productName').value,
-      slug: $('#productSlug').value,
-      templateKey: $('#productTemplate').value,
-      basePrice: Number($('#productBasePrice').value),
-      description: $('#productDescription').value,
-      sortOrder: Number($('#productSortOrder').value),
-      isActive: $('#productIsActive').checked,
-    };
-    if (pendingProductImage) payload.imageUrl = pendingProductImage;
-    else if (pendingProductImageRemoval) payload.imageUrl = null;
-
-    errorEl.hidden = true;
-    $('#productFormSubmit').disabled = true;
-
-    try {
-      const response = await adminFetch(
-        id ? `/api/admin/catalog/products/${id}` : '/api/admin/catalog/products',
-        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Design could not be saved.');
-
-      closeProductModal();
-      await loadCatalogProducts();
-      showToast(id ? 'Design updated.' : 'Design created.');
-    } catch (error) {
-      errorEl.textContent = error.message;
-      errorEl.hidden = false;
+      if (note) note.textContent = error.message;
+      showToast(`Product settings error: ${error.message}`);
     } finally {
-      $('#productFormSubmit').disabled = false;
+      button.disabled = false;
     }
-  });
+  }
+
+  function loadProductSetup() {
+    loadProductSettings();
+    if (!pricingOptions.length) loadPricing();
+  }
+
+  $('#refreshProductSettingsBtn').addEventListener('click', () => loadProductSettings());
+  $('#productSettingsForm').addEventListener('submit', saveProductSettings);
 
   // ---------------------------------------------------------------------------
-  // Studio pricing
+  // Studio pricing (add-ons, initial and clasp; the base price lives in Product Setup)
   // ---------------------------------------------------------------------------
   async function loadPricing() {
     const tbody = $('#pricingBody');
@@ -1779,14 +2000,14 @@
       const response = await adminFetch('/api/admin/pricing');
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Pricing could not be loaded.');
-      pricingOptions = data.options || [];
+      pricingOptions = (data.options || []).filter((option) => option.category !== 'base');
       renderPricing();
       const live = pricingOptions.filter((option) => option.isActive).length;
       note.textContent = `${pricingOptions.length} options · ${live} offered in the studio. Saved prices apply to new orders immediately.`;
     } catch (error) {
       pricingOptions = [];
       tbody.innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
-      note.textContent = 'Pricing management needs the MySQL connection. The studio keeps using the bundled prices.';
+      note.textContent = databaseMessage(error, 'Pricing');
     }
   }
 
@@ -1899,24 +2120,24 @@
 
   // Escape closes the topmost overlay and returns focus to the control that opened it.
   document.addEventListener('keydown', (event) => {
-    const groupModalOpen = !$('#groupModalBackdrop').hidden;
-    const productModalOpen = !$('#productModalBackdrop').hidden;
+    const artistGroupModalOpen = !$('#artistGroupModalBackdrop').hidden;
+    const artistMemberModalOpen = !$('#artistMemberModalBackdrop').hidden;
     const drawerOpen = !$('#detailDrawerBackdrop').hidden;
 
     if (event.key === 'Tab') {
-      if (groupModalOpen) trapFocusWithin($('#groupModal'), event);
-      else if (productModalOpen) trapFocusWithin($('#productModal'), event);
+      if (artistGroupModalOpen) trapFocusWithin($('#artistGroupModal'), event);
+      else if (artistMemberModalOpen) trapFocusWithin($('#artistMemberModal'), event);
       else if (drawerOpen) trapFocusWithin($('#detailDrawer'), event);
       return;
     }
 
     if (event.key !== 'Escape') return;
-    if (groupModalOpen) {
-      closeGroupModal();
+    if (artistGroupModalOpen) {
+      closeArtistGroupModal();
       return;
     }
-    if (productModalOpen) {
-      closeProductModal();
+    if (artistMemberModalOpen) {
+      closeArtistMemberModal();
       return;
     }
     if (drawerOpen) closeOrderDrawer();

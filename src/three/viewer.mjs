@@ -39,6 +39,7 @@ export function mountStudioViewer(elements, options = {}) {
     initial: options.initial || '',
     finishes: {},
     hidden: [],
+    designImageUrl: options.designImageUrl || '',
   };
 
   const scene = new StudioScene({
@@ -213,6 +214,7 @@ export function mountStudioViewer(elements, options = {}) {
       if (typeof next.initial === 'string') configuration.initial = next.initial;
       if (next.finishes) configuration.finishes = { ...configuration.finishes, ...next.finishes };
       if (Array.isArray(next.hidden)) configuration.hidden = next.hidden;
+      if (typeof next.designImageUrl === 'string') configuration.designImageUrl = next.designImageUrl;
       scene.applyConfiguration(configuration);
       if (selectedId && !componentFor(selectedId)) handleSelection(null);
       renderInspector();

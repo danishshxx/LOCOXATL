@@ -28,13 +28,19 @@ test('admin dashboard markup and client scripts are present', () => {
   assert.match(html, /id="customerWhatsAppBtn"/, 'must contain direct WhatsApp action button');
   assert.match(html, /importmap/, 'must declare Three.js import map');
   assert.match(html, /id="adminViewTabs"/, 'must expose the dashboard view tabs');
-  assert.match(html, /id="catalogGroupsBody"/, 'must contain the catalog group table');
-  assert.match(html, /id="groupForm"/, 'must contain the catalog group editor');
-  assert.match(html, /id="groupModal"/, 'the group editor must be a dialog');
+  assert.match(html, /id="artistGroupsBody"/, 'must contain the artist group table');
+  assert.match(html, /id="artistGroupForm"/, 'must contain the artist group editor');
+  assert.match(html, /id="artistGroupModal"/, 'the artist group editor must be a dialog');
+  assert.match(html, /id="productSettingsForm"/, 'must contain Product Setup');
+  assert.match(html, /id="baseModelSelect"/, 'Product Setup must choose the global silhouette');
+  assert.match(html, /id="basePriceInput"/, 'Product Setup must set the shared base price');
+  assert.doesNotMatch(html, /id="catalogGroupsBody"/, 'the duplicate Catalog collections table is removed');
+  assert.doesNotMatch(html, /id="productModalBackdrop"/, 'Product Designs management is removed');
 
   const script = fs.readFileSync(adminJsPath, 'utf8');
   assert.match(script, /setActiveView/, 'admin.js must switch dashboard views');
   assert.match(script, /\/api\/admin\/catalog\/groups/, 'admin.js must call the catalog API');
+  assert.match(script, /\/api\/admin\/product-settings/, 'admin.js must call Product Setup');
   assert.match(script, /document\.hidden/, 'the cashbook poll must pause in a background tab');
 });
 

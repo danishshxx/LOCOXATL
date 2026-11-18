@@ -20,4 +20,5 @@ credentials.*
 tmp-shots/
 tmp-*.cjs
 assets/uploads/
+.commandcode/
 .DS_Store

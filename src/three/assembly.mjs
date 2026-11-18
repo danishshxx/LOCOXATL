@@ -1,4 +1,14 @@
-import { Group, Mesh, MeshBasicMaterial, TorusGeometry, Vector3 } from 'three';
+import {
+  DoubleSide,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  SRGBColorSpace,
+  TextureLoader,
+  TorusGeometry,
+  Vector3,
+} from 'three';
 import { CharmComponent, ComponentRegistry } from './components.mjs';
 import {
   CHARM_SILHOUETTES,
@@ -63,6 +73,10 @@ export class CharmAssembly {
     this.baseId = null;
     this.metrics = null;
     this.initialLetter = '';
+    this.designImageUrl = '';
+    this.designTexture = null;
+    this.designMesh = null;
+    this.onUpdate = null;
     this.registry = new ComponentRegistry({
       root: this.root,
       materials,
@@ -211,6 +225,8 @@ export class CharmAssembly {
     if (!CHARM_SILHOUETTES[baseId]) throw new RangeError(`Unknown base charm: ${baseId}`);
     if (this.baseId === baseId) return false;
 
+    this.removeDesignDecal();
+
     if (this.baseMesh) {
       this.baseGroup.remove(this.baseMesh);
       this.baseMesh.geometry.dispose();
@@ -250,6 +266,7 @@ export class CharmAssembly {
     this.registry.get('base').refresh();
     this.applyFinish('base', this.registry.get('base').finish);
     this.layout();
+    if (this.designTexture) this.renderDesignDecal();
     return true;
   }
 
@@ -329,6 +346,81 @@ export class CharmAssembly {
   setInitialLetter(letter) {
     this.initialLetter = this.letterFace.setLetter(letter);
     return this.initialLetter;
+  }
+
+  /**
+   * Apply the selected member's artwork to the charm face as a printed decal. A missing or
+   * unreadable image simply leaves the neutral acrylic face in place.
+   */
+  setDesignImage(url) {
+    const value = String(url == null ? '' : url).trim();
+    this.designImageUrl = value;
+    if (!value) {
+      this.clearDesignImage();
+      return false;
+    }
+    if (!this.metrics) return false;
+
+    const request = (this.designRequest || 0) + 1;
+    this.designRequest = request;
+    const loader = new TextureLoader();
+    loader.setCrossOrigin('anonymous');
+    loader.load(
+      value,
+      (texture) => {
+        if (this.designRequest !== request) {
+          texture.dispose();
+          return;
+        }
+        texture.colorSpace = SRGBColorSpace;
+        texture.anisotropy = 4;
+        if (this.designTexture && this.designTexture !== texture) this.designTexture.dispose();
+        this.designTexture = texture;
+        this.renderDesignDecal();
+      },
+      undefined,
+      () => { /* keep the neutral face when the image cannot load */ },
+    );
+    return true;
+  }
+
+  clearDesignImage() {
+    this.designRequest = (this.designRequest || 0) + 1;
+    this.removeDesignDecal();
+    if (this.designTexture) {
+      this.designTexture.dispose();
+      this.designTexture = null;
+    }
+    this.designImageUrl = '';
+    if (this.onUpdate) this.onUpdate();
+  }
+
+  removeDesignDecal() {
+    if (!this.designMesh) return;
+    this.baseGroup.remove(this.designMesh);
+    this.designMesh.geometry.dispose();
+    if (this.designMesh.material) this.designMesh.material.dispose();
+    this.designMesh = null;
+  }
+
+  renderDesignDecal() {
+    if (!this.designTexture || !this.metrics || !this.baseGroup) return;
+    this.removeDesignDecal();
+    const { width, height, thickness } = this.metrics;
+    const size = Math.min(width, height) * 0.66;
+    const geometry = new PlaneGeometry(size, size);
+    const material = new MeshBasicMaterial({
+      map: this.designTexture,
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    const mesh = new Mesh(geometry, material);
+    mesh.name = 'design-decal';
+    mesh.position.set(0, 0, thickness / 2 + 0.012);
+    this.baseGroup.add(mesh);
+    this.designMesh = mesh;
+    if (this.onUpdate) this.onUpdate();
   }
 
   /**

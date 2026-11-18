@@ -20,17 +20,19 @@ HTML entry pages          Customer journey; root paths remain stable
 styles.css                Shared design system and responsive layouts
 src/
   site-shell.js            Shared navigation and page shell
-  catalog.js               Artist and product data
+  catalog.js               Catalogue helpers and bundled offline fallback data
   pricing.js, options.js   Shared price rules and option costs
-  artist-page.js           Artist collection page behavior
+  shop-page.js             Collection directory rendered from /api/catalog
+  artist-page.js           Collection page: hero, members and designs from /api/catalog
   studio.js                Custom Studio controls and checkout handoff
   checkout.js              Customer details and order submission
   payment.js               Payment instructions and confirmation flow
   success.js               Order confirmation page
+  admin.js                 Authenticated dashboard: orders, cashbook, artists, catalog
   three/                   3D model, materials, component, scene and viewer modules
-  server/                  Environment, database, validation, order and API modules
+  server/                  Environment, database, validation, order, catalog and API modules
 server.js                  Static file server and API composition
-database/schema.sql        MySQL orders, items and configuration schema
+database/schema.sql        MySQL schema (orders, catalog, artist members, cashbook)
 assets/vendor/three/       Pinned Three.js modules and OrbitControls
 tests/                     Node.js built-in unit and integration-style tests
 tools/                     Optional browser verification utility
@@ -40,7 +42,22 @@ archive/                   Inactive legacy single-page reference
 ## Runtime boundaries
 
 - HTML and public assets stay at stable root-relative paths for the existing multi-page flow.
-- Pricing and option values are shared by the browser and server-side order validation.
+- LOCOXATL sells one keychain. `product_settings` holds the single global base silhouette and
+  `pricing_options` holds the shared base price plus universal add-on, initial and clasp prices.
+  Customers cannot switch silhouettes; the admin chooses it in Product Setup.
+- Collection and member content is data-driven: `shop.html` and `artist.html` render collections,
+  hero images and members from `/api/catalog`, with `src/catalog.js` providing the first paint
+  and the offline fallback. No group or member is hardcoded in the customer markup.
+- Each member carries their own keychain artwork in `artist_members.design_image_url`. That
+  artwork is applied to the charm face in the studio and 3D preview; it is a design of the same
+  product, never a separate product record. `catalog_products` is retired but preserved.
+- The "Artists & Groups" dashboard view is the only place that edits `catalog_groups`
+  presentation fields (cover, hero, eyebrow, tagline, focal crops, visibility, ordering) and
+  `artist_members` (portrait, keychain artwork, ordering, visibility). Images are uploaded through
+  the server, stored in Cloudinary (or the local fallback), and only their URLs are persisted —
+  browser code never holds storage credentials.
+- Pricing and option values are shared by the browser and server-side order validation. New orders
+  reference the member slug; legacy product-slug orders still validate.
 - `src/studio.js` does not load Three.js at initial parse time. The 3D viewer imports
   Three.js using the import map in `studio.html`; `OrbitControls` resolves the same
   `"three"` import-map entry, avoiding a second engine instance.
@@ -260,8 +277,8 @@ The customer-facing storefront is separated into distinct route-level experience
 |---|---|---|---|
 | `index.html` | Brand story, positioning, materials, Buy Now CTA | `/` | Storefront presentation / Store Settings |
 | `shop.html` | Artist and group directory | `/collections` | Catalog |
-| `artist.html?artist=[slug]` | Products for one artist/group | `/collections/[artistSlug]` | Catalog |
-| `studio.html?artist=[slug]&product=[slug]` | Customize selected product and preview price | `/studio/[artistSlug]/[productSlug]` | Catalog, Customizer, Pricing |
+| `artist.html?artist=[slug]` | Member (design) selection for one artist/group | `/collections/[artistSlug]` | Catalog |
+| `studio.html?artist=[slug]&member=[slug]` | Customize the shared keychain with the member's artwork | `/studio/[artistSlug]/[memberSlug]` | Catalog, Customizer, Pricing |
 | `checkout.html` | Guest details, delivery address, order review | `/checkout` | Orders, Shipping, Pricing |
 | `payment.html` | QRIS instruction and WhatsApp handoff | `/payment/[orderCode]` | Payments, Store Settings |
 | `order-success.html` | Customer confirmation and pending-verification status | `/order/[orderCode]` | Orders, Payments |
