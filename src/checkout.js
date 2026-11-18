@@ -33,6 +33,34 @@
   $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
   $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
   $('#summaryConfiguration').textContent = configText;
+
+  // The summary shows the same image the studio previewed, unclipped, with a text fallback.
+  const previewImage = $('#summaryProductImage');
+  const previewEmpty = $('#summaryProductEmpty');
+  const safePreview = (value) => {
+    const url = String(value == null ? '' : value).trim();
+    return /^(https?:\/\/|\/|data:image\/)/i.test(url) ? url : '';
+  };
+  const previewUrl = safePreview(order.previewImage)
+    || safePreview(order.product && order.product.imageUrl)
+    || safePreview(member && member.designImageUrl);
+  const previewLabel = order.previewLabel
+    || (member ? `${member.name} keychain` : ((order.product && order.product.name) || 'LOCOXATL keychain'));
+
+  if (previewImage) {
+    if (previewUrl) {
+      previewImage.src = previewUrl;
+      previewImage.alt = `${previewLabel} preview`;
+      previewImage.hidden = false;
+    } else {
+      previewImage.removeAttribute('src');
+      previewImage.hidden = true;
+    }
+  }
+  if (previewEmpty) {
+    previewEmpty.textContent = previewLabel;
+    previewEmpty.hidden = Boolean(previewUrl);
+  }
   $('#summaryPrice').textContent = money(order.total || 0);
   $('#summaryTotal').textContent = money(order.total || 0);
 

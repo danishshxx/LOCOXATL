@@ -73,6 +73,8 @@
     let activeBundle = null;
     // Set by every renderPreview() call; the checkout payload reads it instead of recomputing.
     let lastQuote = null;
+    // The resolved preview image and label, handed to the checkout summary.
+    let lastPreview = { imageUrl: '', label: '' };
     // The catalogue row for this collection, once the API answers. Custom design groups use it.
     let activeGroup = null;
     // Delivery and payment choices. Shopee is settled in Shopee, so it never asks for a method.
@@ -583,27 +585,43 @@
     });
 
     function renderPreview() {
-      // The globally chosen silhouette drives both the 3D base and this flat fallback.
-      const baseShapes = {
-        heart: '<path d="M200 199c-27-37-78-21-69 23 7 34 69 76 69 76s62-42 69-76c9-44-42-60-69-23Z" fill="url(#previewWhite)" stroke="#c9c9c9" stroke-width="3"/><path d="M157 219c-4 12 1 23 10 30" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round"/>',
-        star: '<path d="m200 187 21 43 47 5-35 31 10 47-43-24-43 24 10-47-35-31 47-5Z" fill="url(#previewWhite)" stroke="#c9c9c9" stroke-width="3"/><path d="m200 202 8 18" stroke="#fff" stroke-width="5" stroke-linecap="round"/>',
-        bow: '<path d="M200 213c-26-35-68-28-67 8 1 24 30 42 64 31-8 24-7 46 3 61 10-15 11-37 3-61 34 11 63-7 64-31 1-36-41-43-67-8Z" fill="url(#previewWhite)" stroke="#c9c9c9" stroke-width="3"/><ellipse cx="200" cy="236" rx="13" ry="16" fill="#eee" stroke="#ccc" stroke-width="2"/>',
-      };
-      const shape = baseShapes[state.base.id] || baseShapes.heart;
-      const artwork = safeUpload(activeMember ? activeMember.designImageUrl : '');
-      // The flat fallback prints the member artwork onto the charm face too, clipped to the
-      // same silhouette the 3D base uses.
-      $('#previewBase').innerHTML = artwork
-        ? `<defs><clipPath id="previewDesignClip">${shape}</clipPath></defs>${shape}<image href="${artwork}" x="110" y="175" width="180" height="165" preserveAspectRatio="xMidYMid slice" clip-path="url(#previewDesignClip)" opacity="0.94"/>`
-        : shape;
-      let addonMarkup = '';
-      if (state.addons.some((item) => item.id === 'pearl')) addonMarkup += '<path d="M260 285v18" stroke="#bbb" stroke-width="5" stroke-linecap="round"/><circle cx="260" cy="321" r="16" fill="url(#previewWhite)" stroke="#ccc" stroke-width="2"/><circle cx="254" cy="315" r="5" fill="#fff"/>';
-      if (state.addons.some((item) => item.id === 'star')) addonMarkup += '<path d="M132 291v12" stroke="#bbb" stroke-width="5" stroke-linecap="round"/><path d="m132 304 8 17 19 2-14 12 4 19-17-10-17 10 4-19-14-12 19-2Z" fill="url(#previewWhite)" stroke="#ccc" stroke-width="2"/>';
-      $('#previewAddon').innerHTML = addonMarkup;
-      $('#previewInitial').innerHTML = state.initial ? `<circle cx="200" cy="270" r="17" fill="#111" stroke="#fff" stroke-width="2"/><text x="200" y="276" text-anchor="middle" font-size="15" font-family="Inter, sans-serif" font-weight="700" fill="#fff">${escapeHtml(state.initial)}</text>` : '';
-      const claspId = state.clasp ? state.clasp.id : '';
-      $('#previewRing').setAttribute('stroke', claspId === 'black' ? '#151515' : '#aaa');
-      $('#previewRing').setAttribute('stroke-width', claspId === 'black' ? '13' : '11');
+      // The preview shows the product image itself, unclipped. Without one it falls back to the
+      // member artwork, then the version cover, then the collection cover, then plain text.
+      const versionSettings = activeGroup && activeVersion && activeGroup.versions
+        ? activeGroup.versions[activeVersion] || null
+        : null;
+      const imageCandidates = [
+        activeProduct && activeProduct.imageUrl,
+        activeMember && activeMember.designImageUrl,
+        versionSettings && versionSettings.coverImageUrl,
+        activeGroup && activeGroup.heroImageUrl,
+        activeGroup && activeGroup.imageUrl,
+      ];
+      const previewImageUrl = imageCandidates
+        .map((candidate) => safeUpload(candidate))
+        .find((candidate) => Boolean(candidate)) || '';
+      const previewLabel = activeMember
+        ? `${activeMember.name} keychain`
+        : ((activeProduct && activeProduct.name) || (activeGroup && activeGroup.name) || 'LOCOXATL keychain');
+
+      const previewImage = $('#previewProductImage');
+      if (previewImage) {
+        if (previewImageUrl) {
+          previewImage.src = previewImageUrl;
+          previewImage.alt = `${previewLabel} preview`;
+          previewImage.hidden = false;
+        } else {
+          previewImage.removeAttribute('src');
+          previewImage.hidden = true;
+        }
+      }
+      const previewEmpty = $('#previewProductEmpty');
+      if (previewEmpty) {
+        previewEmpty.textContent = previewLabel;
+        previewEmpty.hidden = Boolean(previewImageUrl);
+      }
+      lastPreview = { imageUrl: previewImageUrl, label: previewLabel };
+
       $('#previewCount').textContent = `${2 + state.addons.length + (state.initial ? 1 : 0)} PIECES`;
       const quote = pricing.quoteSelections({
         // The standard base is only a fallback: a bundle replaces it, never adds to it.
@@ -735,6 +753,8 @@
         baseModel: state.base.id,
         version: activeVersion || undefined,
         fulfillmentMethod,
+        previewImage: lastPreview.imageUrl || undefined,
+        previewLabel: lastPreview.label || undefined,
         selections: state.selections,
         extraLabels,
         bundle: activeBundle
