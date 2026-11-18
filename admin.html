@@ -489,6 +489,82 @@
       </div>
 
       <div class="admin-table-card">
+        <div class="card-heading"><span>OPTION CATEGORIES</span><span id="optionCategoriesNote" role="status"></span></div>
+        <div class="table-wrap">
+          <table class="admin-orders-table catalog-table">
+            <thead>
+              <tr>
+                <th>CATEGORY</th>
+                <th>SLUG</th>
+                <th>SELECT</th>
+                <th>FREE IN BUNDLE</th>
+                <th>REQUIRED</th>
+                <th>STORE</th>
+                <th class="th-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="optionCategoriesBody">
+              <tr><td colspan="7" class="table-loading">Loading option categories...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <form id="optionCategoryForm" class="product-settings-form">
+          <input type="hidden" id="optionCategoryId" />
+          <label>Category name <input type="text" id="optionCategoryName" maxlength="120" required placeholder="e.g. Charms" /></label>
+          <label>Selection
+            <select id="optionCategoryMode">
+              <option value="multiple">Multiple</option>
+              <option value="single">Single</option>
+            </select>
+          </label>
+          <div class="product-settings-actions">
+            <button type="submit" class="button button-dark button-small" id="optionCategorySubmit">Add category</button>
+            <button type="button" class="button button-outline button-small" id="optionCategoryCancel" hidden>Cancel edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="admin-table-card">
+        <div class="card-heading"><span>PAYMENT METHODS</span><span id="paymentMethodsNote" role="status"></span></div>
+        <div class="table-wrap">
+          <table class="admin-orders-table catalog-table">
+            <thead>
+              <tr>
+                <th>METHOD</th>
+                <th>CODE</th>
+                <th>DETAILS</th>
+                <th>STORE</th>
+                <th class="th-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="paymentMethodsBody">
+              <tr><td colspan="5" class="table-loading">Loading payment methods...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <form id="paymentMethodForm" class="product-settings-form">
+          <input type="hidden" id="paymentMethodCode" />
+          <label>Label <input type="text" id="paymentMethodLabelInput" maxlength="80" required placeholder="e.g. Bank Transfer" /></label>
+          <label>Instructions <textarea id="paymentMethodInstructionsInput" rows="3" maxlength="2000" placeholder="Account number, bank name, or where to pay in cash"></textarea></label>
+          <div class="catalog-image-field">
+            <span class="catalog-field-label">QRIS image</span>
+            <div class="catalog-image-preview" id="paymentMethodPreview" hidden>
+              <img id="paymentMethodThumb" alt="Selected payment method image" />
+              <button type="button" class="text-link" id="paymentMethodImageRemove">Remove image</button>
+            </div>
+            <label class="catalog-image-picker">
+              <input type="file" id="paymentMethodImageInput" accept="image/png,image/jpeg,image/webp" />
+              <span>Choose a QRIS image (PNG, JPEG or WebP, up to 3 MB)</span>
+            </label>
+            <p class="catalog-image-note" id="paymentMethodImageNote" role="status" hidden></p>
+          </div>
+          <div class="product-settings-actions">
+            <button type="submit" class="button button-dark button-small" id="paymentMethodSubmit">Save method</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="admin-table-card">
         <div class="card-heading"><span>UNIVERSAL ADD-ONS, INITIAL &amp; CLASP</span><span id="pricingNote" role="status"></span></div>
         <div class="table-wrap">
           <table class="admin-orders-table pricing-table">
@@ -498,10 +574,11 @@
                 <th>KEY</th>
                 <th>PRICE (IDR)</th>
                 <th>STORE</th>
+                <th class="th-actions">ACTIONS</th>
               </tr>
             </thead>
             <tbody id="pricingBody">
-              <tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>
+              <tr><td colspan="5" class="table-loading">Loading pricing...</td></tr>
             </tbody>
           </table>
         </div>
@@ -509,6 +586,17 @@
           <button type="button" class="button button-outline button-small" id="refreshPricingBtn">Reload</button>
           <button type="button" class="button button-dark button-small" id="savePricingBtn">Save Pricing</button>
         </div>
+        <form id="pricingItemForm" class="product-settings-form">
+          <input type="hidden" id="pricingItemId" />
+          <label>Category <select id="pricingItemCategory"></select></label>
+          <label>Label <input type="text" id="pricingItemLabel" maxlength="120" required placeholder="e.g. Black silicone strap" /></label>
+          <label>Key <input type="text" id="pricingItemKey" maxlength="64" placeholder="Generated from the label" /></label>
+          <label>Price (IDR) <input type="number" id="pricingItemPrice" min="0" step="1000" inputmode="numeric" required /></label>
+          <div class="product-settings-actions">
+            <button type="submit" class="button button-dark button-small" id="pricingItemSubmit">Add option</button>
+            <button type="button" class="button button-outline button-small" id="pricingItemCancel" hidden>Cancel edit</button>
+          </div>
+        </form>
       </div>
     </section>
 
@@ -642,6 +730,14 @@
               <div class="info-item full-width">
                 <span class="info-label">DELIVERY ADDRESS</span>
                 <p class="info-val-address" id="custAddress">—</p>
+              </div>
+              <div class="info-item">
+                <span class="info-label">FULFILLMENT</span>
+                <strong class="info-val" id="custFulfillment">—</strong>
+              </div>
+              <div class="info-item">
+                <span class="info-label">PAYMENT METHOD</span>
+                <strong class="info-val" id="custPayment">—</strong>
               </div>
               <div class="info-item full-width" id="custNoteWrap" hidden>
                 <span class="info-label">CUSTOMER NOTE</span>
@@ -787,6 +883,53 @@
           </div>
         </div>
 
+        <div class="artist-image-grid" id="artistGroupVersionsField">
+          <div class="catalog-image-field">
+            <span class="catalog-field-label">Yellow Version card</span>
+            <label>Card title <input type="text" id="groupVersionYellowTitle" maxlength="120" placeholder="Yellow Version" autocomplete="off" /></label>
+            <label>Card tagline <input type="text" id="groupVersionYellowTagline" maxlength="255" placeholder="Yellow edition" autocomplete="off" /></label>
+            <div class="catalog-image-preview" id="groupVersionYellowPreview" hidden>
+              <img id="groupVersionYellowThumb" alt="Selected yellow version cover" />
+              <button type="button" class="text-link" id="groupVersionYellowRemove">Remove image</button>
+            </div>
+            <label class="catalog-image-picker">
+              <input type="file" id="groupVersionYellowInput" accept="image/png,image/jpeg,image/webp" />
+              <span>Choose a cover (PNG, JPEG or WebP, up to 3 MB)</span>
+            </label>
+            <p class="catalog-image-note" id="groupVersionYellowNote" role="status" hidden></p>
+          </div>
+
+          <div class="catalog-image-field">
+            <span class="catalog-field-label">Pink Version card</span>
+            <label>Card title <input type="text" id="groupVersionPinkTitle" maxlength="120" placeholder="Pink Version" autocomplete="off" /></label>
+            <label>Card tagline <input type="text" id="groupVersionPinkTagline" maxlength="255" placeholder="Pink edition" autocomplete="off" /></label>
+            <div class="catalog-image-preview" id="groupVersionPinkPreview" hidden>
+              <img id="groupVersionPinkThumb" alt="Selected pink version cover" />
+              <button type="button" class="text-link" id="groupVersionPinkRemove">Remove image</button>
+            </div>
+            <label class="catalog-image-picker">
+              <input type="file" id="groupVersionPinkInput" accept="image/png,image/jpeg,image/webp" />
+              <span>Choose a cover (PNG, JPEG or WebP, up to 3 MB)</span>
+            </label>
+            <p class="catalog-image-note" id="groupVersionPinkNote" role="status" hidden></p>
+          </div>
+        </div>
+
+        <div class="admin-modal-row">
+          <label class="catalog-toggle-field">Enable Yellow / Pink versions
+            <span class="toggle-switch">
+              <input type="checkbox" id="artistGroupHasVersions" checked />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </span>
+          </label>
+          <label class="catalog-toggle-field">Custom design group
+            <span class="toggle-switch">
+              <input type="checkbox" id="artistGroupIsCustom" />
+              <span class="toggle-track" aria-hidden="true"></span>
+            </span>
+          </label>
+        </div>
+
         <div class="admin-modal-row">
           <label>Sort order <input type="number" id="artistGroupSortOrder" step="1" min="-9999" max="9999" /></label>
           <label class="catalog-toggle-field">Visible on storefront
@@ -820,6 +963,12 @@
         <input type="hidden" id="artistMemberFormId" />
         <label>Member name <input type="text" id="artistMemberName" maxlength="120" required placeholder="e.g. Jisoo" autocomplete="off" /></label>
         <label>Parent group <select id="artistMemberGroup" required></select></label>
+        <label>Version
+          <select id="artistMemberVersion">
+            <option value="yellow">Yellow Version</option>
+            <option value="pink">Pink Version</option>
+          </select>
+        </label>
         <label>Slug <input type="text" id="artistMemberSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
         <div class="catalog-image-field">
           <span class="catalog-field-label">Portrait image</span>

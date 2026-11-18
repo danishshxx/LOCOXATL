@@ -8,6 +8,18 @@
   const memberSection = document.getElementById('artistMembersSection');
   const memberGrid = document.getElementById('artistMemberGrid');
   const hero = document.querySelector('.artist-hero');
+  const versionSection = document.getElementById('artistVersionSection');
+  const versionGrid = document.getElementById('artistVersionGrid');
+  const versionSwitch = document.getElementById('artistVersionSwitch');
+
+  // Step one of the collection flow: pick Yellow or Pink before seeing any member.
+  const VERSIONS = [
+    { key: 'yellow', label: 'Yellow Version' },
+    { key: 'pink', label: 'Pink Version' },
+  ];
+  const requestedVersion = VERSIONS.some((version) => version.key === (params.get('version') || '').toLowerCase())
+    ? (params.get('version') || '').toLowerCase()
+    : null;
 
   const safe = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
   const safeImage = (url) => (catalog.safeImageUrl ? catalog.safeImageUrl(url) : '');
@@ -40,7 +52,7 @@
     const media = artwork
       ? `<span class="member-card-portrait has-image" style="background-image:url('${artwork}')" role="img" aria-label="${safe(member.name)} keychain artwork"></span>`
       : `<span class="member-card-portrait is-empty" aria-hidden="true">${safe(initials(member.name))}</span>`;
-    const href = `studio.html?artist=${encodeURIComponent(artist.slug)}&amp;member=${encodeURIComponent(member.slug)}`;
+    const href = `studio.html?artist=${encodeURIComponent(artist.slug)}&amp;member=${encodeURIComponent(member.slug)}${requestedVersion ? `&amp;version=${requestedVersion}` : ''}`;
     return `
       <a class="member-card member-card-link reveal is-visible" href="${href}" data-member="${safe(member.slug)}">
         ${media}
@@ -80,7 +92,41 @@
     }
   }
 
-  function renderArtist(artist, members = []) {
+  /**
+   * Step one. These cards use the same markup, size, classes and hover behaviour as the
+   * collection cards on shop.html, so the two pages read as one system.
+   */
+  function versionCards(artist, group) {
+    const versions = (group && group.versions) || {};
+
+    return VERSIONS.map((version, index) => {
+      const settings = versions[version.key] || {};
+      const image = safeImage(settings.coverImageUrl) || safeImage(artist.imageUrl);
+      const focal = safeFocal(settings.coverFocal || artist.coverFocal);
+      const title = settings.title || version.label.replace(' Version', '');
+      const tagline = settings.tagline || version.label;
+      const classes = [
+        'artist-card',
+        index === 0 ? 'artist-card-dark' : 'artist-card-light',
+        'reveal',
+        'is-visible',
+        image ? 'has-image' : '',
+      ].filter(Boolean).join(' ');
+      const style = image
+        ? ` style="background-image:url('${image}');background-position:${focal}"`
+        : '';
+      const href = `artist.html?artist=${encodeURIComponent(artist.slug)}&amp;version=${version.key}`;
+
+      return `
+      <a class="${classes}" href="${href}"${style} data-version="${version.key}">
+        <span class="artist-card-index">${String(index + 1).padStart(2, '0')} / ${safe(version.label.toUpperCase())}</span>
+        <strong>${safe(title)}</strong>
+        <span class="artist-card-bottom">${safe(String(tagline).toUpperCase())} <i>↗</i></span>
+      </a>`;
+    }).join('');
+  }
+
+  function renderArtist(artist, members = [], group = null) {
     document.title = `${artist.name} Collection — LOCOXATL`;
     document.getElementById('breadcrumbArtist').textContent = artist.name;
     document.getElementById('artistTitle').innerHTML = `${safe(artist.name)}<br /><span>collection.</span>`;
@@ -88,7 +134,32 @@
     document.getElementById('artistEdition').textContent = String(artist.edition).toUpperCase();
     document.getElementById('artistMark').textContent = String(artist.name).toUpperCase();
     applyHero(artist);
-    renderMembers(artist, members);
+
+    // A group with the Yellow/Pink picker switched off has one flat set of designs.
+    const versionsEnabled = !group || group.hasVersions !== false;
+
+    if (!versionsEnabled) {
+      if (versionSection) versionSection.hidden = true;
+      if (versionSwitch) versionSwitch.innerHTML = '';
+      renderMembers(artist, members);
+      return;
+    }
+
+    if (!requestedVersion) {
+      // Step one: no members yet, only the two version cards.
+      if (memberSection) memberSection.hidden = true;
+      if (versionSection && versionGrid) {
+        versionSection.hidden = false;
+        versionGrid.innerHTML = versionCards(artist, group);
+      }
+      return;
+    }
+
+    if (versionSection) versionSection.hidden = true;
+    if (versionSwitch) {
+      versionSwitch.innerHTML = `<a class="text-link" href="artist.html?artist=${encodeURIComponent(artist.slug)}">Switch version</a>`;
+    }
+    renderMembers(artist, members.filter((member) => !member.versionKey || member.versionKey === requestedVersion));
   }
 
   // An eyebrow without an API payload still needs its default label.
@@ -101,7 +172,7 @@
   // members, so the generic shared-keychain card links straight into the studio.
   const staticArtist = catalog.getArtist(slug);
   if (staticArtist) {
-    renderArtist(catalog.artistFromGroup(staticArtist, 0), []);
+    renderArtist(catalog.artistFromGroup(staticArtist, 0), [], staticArtist);
   } else if (slug) {
     renderUnavailable('This artist collection is not available yet.');
   }
@@ -120,7 +191,7 @@
           .filter((member) => member.groupSlug === group.slug && member.isActive !== false)
           .map((member) => catalog.memberFromApi(member))
         : [];
-      renderArtist(catalog.artistFromGroup(group, index), members);
+      renderArtist(catalog.artistFromGroup(group, index), members, group);
       return;
     }
 

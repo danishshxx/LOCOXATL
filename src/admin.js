@@ -14,6 +14,10 @@
       .replace('IDR', 'Rp')
       .replace(/\s/g, '');
 
+  // Feature flag shared with src/studio.js. Turning it back on restores the 3D inspector; no
+  // three.js code, asset or stored snapshot was removed to switch it off.
+  const ENABLE_3D_PREVIEW = false;
+
   const formatDate = (isoString) => {
     if (!isoString) return '—';
     const date = new Date(isoString);
@@ -43,6 +47,7 @@
   let accountingSummaryPoll = null;
   let activeView = 'orders';
   let pricingOptions = [];
+  let optionCategories = [];
   let productSettings = null;
   let dbSchemaReady = true;
   let lastFocusedElement = null;
@@ -59,6 +64,10 @@
   let artistPendingPortraitRemoval = false;
   let artistPendingDesign = null;
   let artistPendingDesignRemoval = false;
+  // Yellow/Pink card settings live in catalog_groups.versions_json; a cover is uploaded as a
+  // data URL with the group payload, the same way product images ride along with their row.
+  const groupVersionPending = { yellow: null, pink: null };
+  const groupVersionPendingRemoval = { yellow: false, pink: false };
   // Bundle packages ("paketan") live on the same Catalog view as groups and members.
   let bundles = [];
   let bundlePendingImage = null;
@@ -828,6 +837,23 @@
     $('#custEmail').textContent = order.customer.email || 'None';
     $('#custAddress').textContent = order.customer.address || '—';
 
+    const FULFILLMENT_LABELS = {
+      campus_delivery: 'Campus Delivery',
+      cod_telkom: 'COD Telkom Jakarta',
+      shopee_external: 'Shopee External',
+    };
+    const PAYMENT_LABELS = { qris: 'QRIS', cash: 'Cash', transfer: 'Transfer' };
+    const fulfillmentEl = $('#custFulfillment');
+    if (fulfillmentEl) {
+      fulfillmentEl.textContent = FULFILLMENT_LABELS[order.fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery;
+    }
+    const paymentEl = $('#custPayment');
+    if (paymentEl) {
+      paymentEl.textContent = order.paymentMethod
+        ? (PAYMENT_LABELS[order.paymentMethod] || order.paymentMethod)
+        : (order.fulfillmentMethod === 'shopee_external' ? 'Paid on Shopee' : '—');
+    }
+
     if (order.customer.note) {
       $('#custNote').textContent = order.customer.note;
       $('#custNoteWrap').hidden = false;
@@ -1064,6 +1090,19 @@
     const canvas = $('#adminViewerCanvas');
     const stage = $('#adminViewerStage');
     if (!canvas || !stage) return;
+
+    if (!ENABLE_3D_PREVIEW) {
+      // Mirrors the studio flag: the three.js modules and the stored snapshot stay untouched,
+      // the viewport simply does not mount, so the specification list stays authoritative.
+      stage.dataset.viewer = 'off';
+      const fallback = $('#adminPreviewFallback');
+      if (fallback) {
+        fallback.hidden = false;
+        const note = fallback.querySelector('.fallback-note');
+        if (note) note.textContent = '3D preview is turned off. The production specification below lists every part.';
+      }
+      return;
+    }
 
     stage.dataset.viewer = 'loading';
 
@@ -1390,6 +1429,22 @@
     renderArtistImagePreview('artistCoverPreview', 'artistCoverThumb', group ? group.imageUrl : '');
     renderArtistImagePreview('artistHeroPreview', 'artistHeroThumb', group ? group.heroImageUrl : '');
 
+    for (const key of ['yellow', 'pink']) {
+      const cap = `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+      const settings = (group && group.versions && group.versions[key]) || {};
+      $(`#groupVersion${cap}Title`).value = settings.title || '';
+      $(`#groupVersion${cap}Tagline`).value = settings.tagline || '';
+      groupVersionPending[key] = null;
+      groupVersionPendingRemoval[key] = false;
+      $(`#groupVersion${cap}Input`).value = '';
+      setImageNote(`groupVersion${cap}Note`, '');
+      renderArtistImagePreview(`groupVersion${cap}Preview`, `groupVersion${cap}Thumb`, settings.coverImageUrl || '');
+    }
+
+    $('#artistGroupHasVersions').checked = group ? group.hasVersions !== false : true;
+    $('#artistGroupIsCustom').checked = group ? Boolean(group.isCustomDesign) : false;
+    applyGroupModeVisibility();
+
     lastFocusedElement = document.activeElement;
     $('#artistGroupModalBackdrop').hidden = false;
     $('#artistGroupModal').focus();
@@ -1454,6 +1509,35 @@
     setImageNote('artistHeroNote', 'The hero image will be removed when you save.');
   });
 
+  // Yellow/Pink cover pickers. Covers ride along with the group payload as data URLs.
+  for (const key of ['yellow', 'pink']) {
+    const cap = `${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+
+    $(`#groupVersion${cap}Input`).addEventListener('change', async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      setImageNote(`groupVersion${cap}Note`, 'Preparing image…');
+      try {
+        groupVersionPending[key] = await readImageFile(file);
+        groupVersionPendingRemoval[key] = false;
+        renderArtistImagePreview(`groupVersion${cap}Preview`, `groupVersion${cap}Thumb`, groupVersionPending[key]);
+        setImageNote(`groupVersion${cap}Note`, 'Ready to upload with the group.');
+      } catch (error) {
+        groupVersionPending[key] = null;
+        setImageNote(`groupVersion${cap}Note`, error.message);
+        $(`#groupVersion${cap}Input`).value = '';
+      }
+    });
+
+    $(`#groupVersion${cap}Remove`).addEventListener('click', () => {
+      groupVersionPending[key] = null;
+      groupVersionPendingRemoval[key] = true;
+      $(`#groupVersion${cap}Input`).value = '';
+      renderArtistImagePreview(`groupVersion${cap}Preview`, `groupVersion${cap}Thumb`, '');
+      setImageNote(`groupVersion${cap}Note`, 'The cover will be removed when you save.');
+    });
+  }
+
   /** Uploads (or clears) one group image, returning the refreshed group. */
   async function saveGroupImage(groupId, kind, dataUrl) {
     const url = `/api/admin/catalog/groups/${groupId}/image${kind === 'hero' ? '?kind=hero' : ''}`;
@@ -1488,6 +1572,21 @@
       sortOrder: Number($('#artistGroupSortOrder').value),
       isActive: $('#artistGroupIsActive').checked,
     };
+
+    payload.versions = {};
+    for (const key of ['yellow', 'pink']) {
+      const cap = key === 'yellow' ? 'Yellow' : 'Pink';
+      const entry = {
+        title: $(`#groupVersion${cap}Title`).value,
+        tagline: $(`#groupVersion${cap}Tagline`).value,
+      };
+      if (groupVersionPending[key]) entry.coverImageUrl = groupVersionPending[key];
+      else if (groupVersionPendingRemoval[key]) entry.coverImageUrl = null;
+      payload.versions[key] = entry;
+    }
+
+    payload.hasVersions = $('#artistGroupHasVersions').checked;
+    payload.isCustomDesign = $('#artistGroupIsCustom').checked;
 
     errorEl.hidden = true;
     $('#artistGroupFormSubmit').disabled = true;
@@ -1975,6 +2074,7 @@
     $('#artistMemberSlug').value = member ? member.slug : '';
     $('#artistMemberGroup').value = String(member ? member.groupId : ($('#memberGroupFilter').value || artistGroups[0].id));
     $('#artistMemberSortOrder').value = String(member ? member.sortOrder : 0);
+    $('#artistMemberVersion').value = member && member.versionKey ? member.versionKey : 'yellow';
     $('#artistMemberIsActive').checked = member ? Boolean(member.isActive) : true;
     $('#artistMemberModalEyebrow').textContent = member ? 'EDIT MEMBER' : 'NEW MEMBER';
     $('#artistMemberModalTitle').textContent = member ? member.name : 'Add member';
@@ -2074,6 +2174,7 @@
       groupId: Number($('#artistMemberGroup').value),
       name: $('#artistMemberName').value,
       slug: $('#artistMemberSlug').value,
+      versionKey: $('#artistMemberVersion').value,
       sortOrder: Number($('#artistMemberSortOrder').value),
       isActive: $('#artistMemberIsActive').checked,
     };
@@ -2242,6 +2343,8 @@
 
   function loadProductSetup() {
     loadProductSettings();
+    loadOptionCategories();
+    loadPaymentMethods();
     if (!pricingOptions.length) loadPricing();
   }
 
@@ -2254,7 +2357,7 @@
   async function loadPricing() {
     const tbody = $('#pricingBody');
     const note = $('#pricingNote');
-    tbody.innerHTML = '<tr><td colspan="4" class="table-loading">Loading pricing...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="table-loading">Loading pricing...</td></tr>';
 
     try {
       const response = await adminFetch('/api/admin/pricing');
@@ -2266,7 +2369,7 @@
       note.textContent = `${pricingOptions.length} options · ${live} offered in the studio. Saved prices apply to new orders immediately.`;
     } catch (error) {
       pricingOptions = [];
-      tbody.innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
       note.textContent = databaseMessage(error, 'Pricing');
     }
   }
@@ -2274,20 +2377,20 @@
   function renderPricing() {
     const tbody = $('#pricingBody');
     if (!pricingOptions.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="table-empty">No pricing options yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="table-empty">No pricing options yet.</td></tr>';
       return;
     }
 
-    const groups = [
-      { key: 'addon', label: 'ADD-ONS' },
-      { key: 'clasp', label: 'CLASPS' },
-    ];
+    // Categories come from the dashboard; the fallback keeps older tables readable.
+    const categories = optionCategories.length
+      ? optionCategories.map((category) => ({ key: category.slug, label: category.name }))
+      : [...new Set(pricingOptions.map((option) => option.category))].map((key) => ({ key, label: key }));
 
     let markup = '';
-    for (const group of groups) {
-      const rows = pricingOptions.filter((option) => option.category === group.key);
+    for (const category of categories) {
+      const rows = pricingOptions.filter((option) => option.category === category.key);
       if (!rows.length) continue;
-      markup += `<tr class="pricing-group-row"><td colspan="4">${group.label}</td></tr>`;
+      markup += `<tr class="pricing-group-row"><td colspan="5">${escapeHtml(String(category.label).toUpperCase())}</td></tr>`;
       markup += rows.map((option) => `
         <tr data-pricing-row="${escapeHtml(option.key)}">
           <td><input type="text" class="pricing-label-input" data-pricing-label="${escapeHtml(option.key)}" value="${escapeHtml(option.label)}" maxlength="120" aria-label="Label for ${escapeHtml(option.key)}" /></td>
@@ -2300,10 +2403,21 @@
               <span class="toggle-label">${option.isActive ? 'Live' : 'Off'}</span>
             </label>
           </td>
+          <td class="artist-row-actions">
+            ${option.id ? `<button type="button" class="button button-outline button-small" data-edit-option="${option.id}">Edit</button>` : ''}
+            ${option.id ? `<button type="button" class="text-link danger-link" data-delete-option="${option.id}">Delete</button>` : ''}
+          </td>
         </tr>`).join('');
     }
 
-    tbody.innerHTML = markup || '<tr><td colspan="4" class="table-empty">No pricing options yet.</td></tr>';
+    tbody.innerHTML = markup || '<tr><td colspan="5" class="table-empty">No pricing options yet.</td></tr>';
+
+    tbody.querySelectorAll('[data-edit-option]').forEach((button) => {
+      button.addEventListener('click', () => beginPricingEdit(Number(button.dataset.editOption)));
+    });
+    tbody.querySelectorAll('[data-delete-option]').forEach((button) => {
+      button.addEventListener('click', () => deletePricingOption(Number(button.dataset.deleteOption)));
+    });
   }
 
   async function savePricing() {
@@ -2359,6 +2473,369 @@
 
   $('#refreshPricingBtn').addEventListener('click', () => loadPricing());
   $('#savePricingBtn').addEventListener('click', savePricing);
+
+  // ---------------------------------------------------------------------------
+  // Option categories and their items
+  //
+  // A category is a customer-facing choice group; its items live in pricing_options under the
+  // category slug. Both are editable here, so a new strap or charm needs no deploy.
+  // ---------------------------------------------------------------------------
+  async function loadOptionCategories() {
+    const tbody = $('#optionCategoriesBody');
+    const note = $('#optionCategoriesNote');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-loading">Loading option categories...</td></tr>';
+
+    try {
+      const response = await adminFetch('/api/admin/option-categories');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Option categories could not be loaded.');
+      optionCategories = data.categories || [];
+      renderOptionCategories();
+      renderPricing();
+      note.textContent = `${optionCategories.length} categor${optionCategories.length === 1 ? 'y' : 'ies'} · order controls the studio.`;
+    } catch (error) {
+      optionCategories = [];
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = databaseMessage(error, 'Option categories');
+    }
+  }
+
+  function renderOptionCategories() {
+    const tbody = $('#optionCategoriesBody');
+    if (!optionCategories.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No categories yet.</td></tr>';
+      syncPricingCategoryOptions();
+      return;
+    }
+
+    tbody.innerHTML = optionCategories.map((category, index) => `
+      <tr data-option-category-row="${category.id}">
+        <td class="customer-cell"><strong>${escapeHtml(category.name)}</strong></td>
+        <td><code class="catalog-slug">${escapeHtml(category.slug)}</code></td>
+        <td>${category.selectionMode === 'single' ? 'Single' : 'Multiple'}</td>
+        <td>${category.countsTowardBundleFree ? 'Yes' : 'No'}</td>
+        <td>${category.isRequired ? 'Yes' : 'No'}</td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-category="${category.id}" ${category.isActive ? 'checked' : ''} aria-label="Show ${escapeHtml(category.name)} in the studio" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${category.isActive ? 'Live' : 'Off'}</span>
+          </label>
+        </td>
+        <td class="artist-row-actions">
+          <button type="button" class="icon-button catalog-move" data-move-category="-1" data-category-id="${category.id}" aria-label="Move ${escapeHtml(category.name)} up" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" class="icon-button catalog-move" data-move-category="1" data-category-id="${category.id}" aria-label="Move ${escapeHtml(category.name)} down" ${index === optionCategories.length - 1 ? 'disabled' : ''}>↓</button>
+          <button type="button" class="button button-outline button-small" data-edit-category="${category.id}">Edit</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-edit-category]').forEach((button) => {
+      button.addEventListener('click', () => beginCategoryEdit(Number(button.dataset.editCategory)));
+    });
+    tbody.querySelectorAll('[data-toggle-category]').forEach((input) => {
+      input.addEventListener('change', () => patchCategory(Number(input.dataset.toggleCategory), { isActive: input.checked }));
+    });
+    tbody.querySelectorAll('[data-move-category]').forEach((button) => {
+      button.addEventListener('click', () => moveCategory(Number(button.dataset.categoryId), Number(button.dataset.moveCategory)));
+    });
+    syncPricingCategoryOptions();
+  }
+
+  function syncPricingCategoryOptions() {
+    const select = $('#pricingItemCategory');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = optionCategories
+      .map((category) => `<option value="${escapeHtml(category.slug)}">${escapeHtml(category.name)}</option>`)
+      .join('');
+    if (current) select.value = current;
+  }
+
+  function beginCategoryEdit(id) {
+    const category = optionCategories.find((row) => row.id === id);
+    if (!category) return;
+    $('#optionCategoryId').value = String(category.id);
+    $('#optionCategoryName').value = category.name;
+    $('#optionCategoryMode').value = category.selectionMode;
+    $('#optionCategorySubmit').textContent = 'Save category';
+    $('#optionCategoryCancel').hidden = false;
+    $('#optionCategoryName').focus();
+  }
+
+  function resetCategoryForm() {
+    $('#optionCategoryId').value = '';
+    $('#optionCategoryForm').reset();
+    $('#optionCategorySubmit').textContent = 'Add category';
+    $('#optionCategoryCancel').hidden = true;
+  }
+
+  async function patchCategory(id, body) {
+    try {
+      const response = await adminFetch(`/api/admin/option-categories/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Category could not be updated.');
+      await loadOptionCategories();
+      await loadPricing();
+    } catch (error) {
+      showToast(`Category error: ${error.message}`);
+      await loadOptionCategories();
+    }
+  }
+
+  async function moveCategory(id, direction) {
+    const index = optionCategories.findIndex((row) => row.id === id);
+    if (index < 0) return;
+    const current = optionCategories[index];
+    const neighbour = optionCategories[index + direction];
+    if (!neighbour) return;
+    try {
+      await patchCategory(current.id, { sortOrder: neighbour.sortOrder });
+      await patchCategory(neighbour.id, { sortOrder: current.sortOrder });
+    } catch (error) {
+      showToast(`Reorder error: ${error.message}`);
+    }
+  }
+
+  $('#optionCategoryForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#optionCategoryId').value;
+    const payload = {
+      name: $('#optionCategoryName').value,
+      selectionMode: $('#optionCategoryMode').value,
+    };
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/option-categories/${id}` : '/api/admin/option-categories',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Category could not be saved.');
+      resetCategoryForm();
+      await loadOptionCategories();
+      showToast(id ? 'Category updated.' : 'Category created.');
+    } catch (error) {
+      showToast(`Category error: ${error.message}`);
+    }
+  });
+
+  $('#optionCategoryCancel').addEventListener('click', resetCategoryForm);
+
+  $('#pricingItemForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#pricingItemId').value;
+    const payload = {
+      category: $('#pricingItemCategory').value,
+      label: $('#pricingItemLabel').value,
+      optionKey: $('#pricingItemKey').value,
+      price: Number($('#pricingItemPrice').value),
+    };
+    if (!Number.isInteger(payload.price) || payload.price < 0) {
+      showToast('Price must be a whole number of at least 0.');
+      $('#pricingItemPrice').focus();
+      return;
+    }
+    if (!id && !payload.optionKey) delete payload.optionKey;
+    try {
+      const response = await adminFetch(
+        id ? `/api/admin/pricing/${id}` : '/api/admin/pricing',
+        { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Option could not be saved.');
+      resetPricingItemForm();
+      await loadPricing();
+      showToast(id ? 'Option updated.' : 'Option created.');
+    } catch (error) {
+      showToast(`Option error: ${error.message}`);
+    }
+  });
+
+  function resetPricingItemForm() {
+    $('#pricingItemId').value = '';
+    $('#pricingItemForm').reset();
+    $('#pricingItemSubmit').textContent = 'Add option';
+    $('#pricingItemCancel').hidden = true;
+  }
+
+  function beginPricingEdit(id) {
+    const option = pricingOptions.find((row) => row.id === id);
+    if (!option) return;
+    $('#pricingItemId').value = String(option.id);
+    $('#pricingItemCategory').value = option.category;
+    $('#pricingItemLabel').value = option.label;
+    $('#pricingItemKey').value = option.key;
+    $('#pricingItemPrice').value = String(option.price);
+    $('#pricingItemSubmit').textContent = 'Save option';
+    $('#pricingItemCancel').hidden = false;
+    $('#pricingItemLabel').focus();
+  }
+
+  async function deletePricingOption(id) {
+    try {
+      const response = await adminFetch(`/api/admin/pricing/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Option could not be removed.');
+      await loadPricing();
+      showToast('Option removed.');
+    } catch (error) {
+      showToast(`Option error: ${error.message}`);
+    }
+  }
+
+  $('#pricingItemCancel').addEventListener('click', resetPricingItemForm);
+
+  // ---------------------------------------------------------------------------
+  // Payment methods
+  // ---------------------------------------------------------------------------
+  let paymentMethods = [];
+  let paymentPendingImage = null;
+  let paymentPendingRemoval = false;
+
+  async function loadPaymentMethods() {
+    const tbody = $('#paymentMethodsBody');
+    const note = $('#paymentMethodsNote');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="table-loading">Loading payment methods...</td></tr>';
+
+    try {
+      const response = await adminFetch('/api/admin/payment-methods');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Payment methods could not be loaded.');
+      paymentMethods = data.paymentMethods || [];
+      renderPaymentMethods();
+      note.textContent = `${paymentMethods.length} methods. Switch one off to hide it at checkout.`;
+    } catch (error) {
+      paymentMethods = [];
+      tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      note.textContent = databaseMessage(error, 'Payment methods');
+    }
+  }
+
+  function renderPaymentMethods() {
+    const tbody = $('#paymentMethodsBody');
+    if (!tbody) return;
+    if (!paymentMethods.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="table-empty">No payment methods yet.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = paymentMethods.map((method) => `
+      <tr data-payment-row="${escapeHtml(method.code)}">
+        <td class="customer-cell"><strong>${escapeHtml(method.label)}</strong></td>
+        <td><code class="catalog-slug">${escapeHtml(method.code)}</code></td>
+        <td>${method.imageUrl ? 'QRIS image uploaded' : (method.instructions ? escapeHtml(method.instructions.slice(0, 80)) : 'No details yet')}</td>
+        <td>
+          <label class="toggle-switch toggle-switch-inline">
+            <input type="checkbox" data-toggle-payment="${escapeHtml(method.code)}" ${method.isActive ? 'checked' : ''} aria-label="Offer ${escapeHtml(method.label)} at checkout" />
+            <span class="toggle-track" aria-hidden="true"></span>
+            <span class="toggle-label">${method.isActive ? 'Live' : 'Off'}</span>
+          </label>
+        </td>
+        <td class="artist-row-actions">
+          <button type="button" class="button button-outline button-small" data-edit-payment="${escapeHtml(method.code)}">Edit</button>
+        </td>
+      </tr>`).join('');
+
+    tbody.querySelectorAll('[data-toggle-payment]').forEach((input) => {
+      input.addEventListener('change', () => {
+        patchPaymentMethod(input.dataset.togglePayment, { isActive: input.checked });
+      });
+    });
+    tbody.querySelectorAll('[data-edit-payment]').forEach((button) => {
+      button.addEventListener('click', () => beginPaymentEdit(button.dataset.editPayment));
+    });
+  }
+
+  function beginPaymentEdit(code) {
+    const method = paymentMethods.find((row) => row.code === code);
+    if (!method) return;
+    paymentPendingImage = null;
+    paymentPendingRemoval = false;
+    $('#paymentMethodCode').value = code;
+    $('#paymentMethodLabelInput').value = method.label;
+    $('#paymentMethodInstructionsInput').value = method.instructions || '';
+    $('#paymentMethodImageInput').value = '';
+    setImageNote('paymentMethodImageNote', '');
+    renderArtistImagePreview('paymentMethodPreview', 'paymentMethodThumb', method.imageUrl || '');
+    $('#paymentMethodLabelInput').focus();
+  }
+
+  async function patchPaymentMethod(code, body) {
+    try {
+      const response = await adminFetch(`/api/admin/payment-methods/${code}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'The payment method could not be updated.');
+      await loadPaymentMethods();
+      showToast('Payment method saved.');
+    } catch (error) {
+      showToast(`Payment error: ${error.message}`);
+      await loadPaymentMethods();
+    }
+  }
+
+  $('#paymentMethodForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const code = $('#paymentMethodCode').value;
+    if (!code) {
+      showToast('Pick a payment method to edit first.');
+      return;
+    }
+    const body = {
+      label: $('#paymentMethodLabelInput').value,
+      instructions: $('#paymentMethodInstructionsInput').value,
+    };
+    if (paymentPendingImage) body.imageUrl = paymentPendingImage;
+    else if (paymentPendingRemoval) body.imageUrl = '';
+
+    await patchPaymentMethod(code, body);
+    paymentPendingImage = null;
+    paymentPendingRemoval = false;
+  });
+
+  $('#paymentMethodImageInput').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    setImageNote('paymentMethodImageNote', 'Preparing image…');
+    try {
+      paymentPendingImage = await readImageFile(file);
+      paymentPendingRemoval = false;
+      renderArtistImagePreview('paymentMethodPreview', 'paymentMethodThumb', paymentPendingImage);
+      setImageNote('paymentMethodImageNote', 'Ready to upload with the method.');
+    } catch (error) {
+      paymentPendingImage = null;
+      setImageNote('paymentMethodImageNote', error.message);
+      event.target.value = '';
+    }
+  });
+
+  $('#paymentMethodImageRemove').addEventListener('click', () => {
+    paymentPendingImage = null;
+    paymentPendingRemoval = true;
+    $('#paymentMethodImageInput').value = '';
+    renderArtistImagePreview('paymentMethodPreview', 'paymentMethodThumb', '');
+    setImageNote('paymentMethodImageNote', 'The image will be removed when you save.');
+  });
+
+  /** A group without versions hides the Yellow/Pink card settings entirely. */
+  function applyGroupModeVisibility() {
+    const field = $('#artistGroupVersionsField');
+    const hasVersions = $('#artistGroupHasVersions');
+    if (!field || !hasVersions) return;
+    field.hidden = !hasVersions.checked;
+  }
+
+  $('#artistGroupHasVersions').addEventListener('change', applyGroupModeVisibility);
+  $('#artistGroupIsCustom').addEventListener('change', () => {
+    // Custom design groups ship one flat set of items, so the version step starts switched off.
+    if ($('#artistGroupIsCustom').checked) $('#artistGroupHasVersions').checked = false;
+    applyGroupModeVisibility();
+  });
 
   // Keeps Tab inside an open dialog, so focus never lands on the page behind it.
   function trapFocusWithin(container, event) {

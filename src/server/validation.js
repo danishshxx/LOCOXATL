@@ -12,6 +12,11 @@ const ALLOWED_CLASPS = new Set(options.clasps.map((clasp) => clasp.id));
 const ALLOWED_ADDONS = new Set(options.addons.map((addon) => addon.id));
 const MAX_QUANTITY = 20;
 const MAX_CONFIGURATION_BYTES = 20000;
+const VERSION_KEYS = ['yellow', 'pink'];
+// Delivery paths the storefront offers. Only the two campus options collect money through the
+// site; Shopee is settled on Shopee, so it never carries a payment method.
+const FULFILLMENT_METHODS = ['campus_delivery', 'cod_telkom', 'shopee_external'];
+const DEFAULT_FULFILLMENT_METHOD = 'campus_delivery';
 
 class ValidationError extends Error {
   constructor(details) {
@@ -23,6 +28,152 @@ class ValidationError extends Error {
 }
 
 const cleanText = (value, maxLength) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+
+// Kept for callers that still import them; option validation now reads the live inventory so a
+// dashboard category needs no code change.
+const DEFAULT_CATEGORIES = [
+  { slug: 'addon', name: 'Universal Add-ons', selectionMode: 'multiple', isRequired: false, countsTowardBundleFree: true, sortOrder: 0 },
+  { slug: 'clasp', name: 'Clasps', selectionMode: 'single', isRequired: true, countsTowardBundleFree: false, sortOrder: 1 },
+];
+
+/**
+ * Every priced option in the catalogue, in the category-agnostic shape the pricing engine reads.
+ * A catalogue that only knows addons/clasps is upgraded here, so older payloads keep working.
+ */
+function optionInventory(catalogData) {
+  const options = catalogData && catalogData.options ? catalogData.options : serverCatalog.staticPricingTable();
+  // Inactive rows are never offered, so they are never priced or required.
+  if (Array.isArray(options.items) && options.items.length) {
+    return options.items
+      .filter((item) => item && item.isActive !== false)
+      .map((item) => ({
+        key: String(item.key ?? item.id ?? '').toLowerCase(),
+        category: String(item.category || 'addon').toLowerCase(),
+        price: Number(item.price) || 0,
+        personalization: Boolean(item.personalization),
+      }));
+  }
+
+  const items = [];
+  for (const addon of options.addons || []) {
+    if (!addon || addon.isActive === false) continue;
+    items.push({
+      key: String(addon.key ?? addon.id ?? '').toLowerCase(),
+      category: 'addon',
+      price: Number(addon.price) || 0,
+      personalization: Boolean(addon.personalization),
+    });
+  }
+  for (const clasp of options.clasps || []) {
+    if (!clasp || clasp.isActive === false) continue;
+    items.push({
+      key: String(clasp.key ?? clasp.id ?? '').toLowerCase(),
+      category: 'clasp',
+      price: Number(clasp.price) || 0,
+      personalization: false,
+    });
+  }
+  return items;
+}
+
+function optionCategoriesFor(catalogData) {
+  const categories = catalogData && Array.isArray(catalogData.optionCategories) && catalogData.optionCategories.length
+    ? catalogData.optionCategories
+    : DEFAULT_CATEGORIES;
+  // A category the dashboard switched off is not offered at all, so it cannot be required.
+  return categories.filter((category) => category && category.isActive !== false);
+}
+
+/**
+ * Payment methods the buyer may pick. A catalogue payload always carries the full list, so an
+ * empty list means "the admin switched everything off" and must not be replaced by defaults.
+ */
+function activePaymentMethods(catalogData) {
+  if (catalogData && Array.isArray(catalogData.paymentMethods)) {
+    return catalogData.paymentMethods.filter((method) => method && method.isActive !== false);
+  }
+  return serverCatalog.staticPaymentMethods();
+}
+
+/** Selections by category slug; legacy payloads expose a flat addon list plus one clasp id. */
+function configurationSelections(configuration) {
+  const source = configuration && configuration.selections && typeof configuration.selections === 'object'
+    ? configuration.selections
+    : null;
+
+  if (source) {
+    const result = {};
+    for (const [slug, value] of Object.entries(source)) {
+      const keys = (Array.isArray(value) ? value : [value])
+        .map((entry) => cleanText(typeof entry === 'string' ? entry : (entry && (entry.key ?? entry.id)), 64).toLowerCase())
+        .filter(Boolean);
+      result[String(slug).toLowerCase()] = keys;
+    }
+    return result;
+  }
+
+  return {
+    addon: Array.isArray(configuration && configuration.addons) ? configuration.addons.slice() : [],
+    clasp: configuration && configuration.clasp ? [configuration.clasp] : [],
+  };
+}
+
+/**
+ * Drops selections for categories the catalogue no longer offers. A category the dashboard hid
+ * cannot be required or charged, however stale the page that submitted it. Choices inside a live
+ * category are left alone so an unknown key is still rejected by validateSelections().
+ */
+function offeredSelections(selections, categories) {
+  const activeSlugs = new Set(categories.map((category) => String(category.slug).toLowerCase()));
+  const result = {};
+
+  for (const [slug, keys] of Object.entries(selections)) {
+    if (!activeSlugs.has(slug)) continue;
+    result[slug] = keys;
+  }
+
+  return result;
+}
+
+/** Unknown keys, single-mode overflow and required categories are all order-level errors. */
+function validateSelections(selections, categories, items, errors) {
+  const byKey = new Map(items.map((item) => [item.key, item]));
+
+  for (const [slug, keys] of Object.entries(selections)) {
+    const category = categories.find((entry) => String(entry.slug).toLowerCase() === slug);
+    if (!category) {
+      errors[slug] = `Unknown option category: ${slug}.`;
+      continue;
+    }
+
+    const valid = [];
+    for (const key of keys) {
+      const item = byKey.get(key);
+      if (!item || item.category !== slug) {
+        const detailKey = slug === 'addon' ? 'addons' : slug;
+        errors[detailKey] = `Unknown option in ${slug}: ${key}.`;
+        continue;
+      }
+      valid.push(key);
+    }
+
+    const label = category.name || slug;
+    if (category.selectionMode === 'single' && valid.length > 1) {
+      errors[slug] = `Choose at most one ${label}.`;
+    }
+    if (category.isRequired && !valid.length) {
+      errors[slug] = `Choose a ${label}.`;
+    }
+  }
+
+  for (const category of categories) {
+    const slug = String(category.slug).toLowerCase();
+    if (!category.isRequired || errors[slug]) continue;
+    if (!(selections[slug] && selections[slug].length)) {
+      errors[slug] = `Choose a ${category.name || slug}.`;
+    }
+  }
+}
 const cleanMultiline = (value, maxLength) => String(value ?? '').replace(/\r\n/g, '\n').trim().slice(0, maxLength);
 
 function normalizeCustomer(input = {}, errors) {
@@ -46,16 +197,16 @@ function normalizeConfiguration(input = {}, errors) {
   const baseId = cleanText(configuration.base?.id, 20).toLowerCase();
   if (baseId && !ALLOWED_BASES.has(baseId)) errors.base = 'Unknown base charm.';
 
-  const claspId = cleanText(configuration.clasp?.id, 20).toLowerCase() || 'silver';
-  if (!ALLOWED_CLASPS.has(claspId)) errors.clasp = 'Unknown clasp.';
+  // A clasp is only assumed for older clients that send addons/clasp and no selections map;
+  // with a selections map the absence of a clasp means the customer was offered none.
+  const hasSelections = Boolean(configuration.selections && typeof configuration.selections === 'object');
+  const claspId = cleanText(configuration.clasp?.id, 20).toLowerCase() || (hasSelections ? '' : 'silver');
 
   const addonIds = Array.isArray(configuration.addons)
     ? [...new Set(configuration.addons
       .map((addon) => cleanText(typeof addon === 'string' ? addon : addon?.id, 20).toLowerCase())
       .filter(Boolean))]
     : [];
-  const unknownAddon = addonIds.find((id) => !ALLOWED_ADDONS.has(id));
-  if (unknownAddon) errors.addons = `Unknown add-on: ${unknownAddon}.`;
 
   const initial = cleanText(configuration.initial, 1).toUpperCase().replace(/[^A-Z0-9]/g, '');
   const components = Array.isArray(configuration.components)
@@ -74,6 +225,11 @@ function normalizeConfiguration(input = {}, errors) {
     base: baseId,
     clasp: claspId,
     addons: addonIds,
+    // Every category the buyer touched, by slug. Absent on older clients, which is why
+    // configurationSelections() can still derive addon/clasp from the fields above.
+    selections: configuration.selections && typeof configuration.selections === 'object'
+      ? configuration.selections
+      : undefined,
     initial,
     components,
     render: {
@@ -96,20 +252,6 @@ function sanitizeTransform(transform) {
     rotation: vector(transform.rotation, 4),
     scale: vector(transform.scale, 3),
   };
-}
-
-function quoteFor({ basePrice, configuration, quantity, pricingTable, bundle }) {
-  // When a live table is supplied the prices come from pricing_options; otherwise
-  // src/pricing.js falls back to src/options.js, so both paths agree on the same total.
-  return pricing.calculatePrice({
-    basePrice,
-    bundle: bundle || undefined,
-    addonIds: configuration.addons.filter((id) => id !== 'initial'),
-    claspId: configuration.clasp,
-    initial: configuration.initial,
-    pricing: pricingTable || undefined,
-    quantity,
-  });
 }
 
 function catalogProducts(catalogData) {
@@ -225,30 +367,51 @@ function validateOrderPayload(payload = {}, context = {}) {
     }
   }
 
-  const freeAddonIds = bundle
-    ? pricing.freeAddonIds({
-      addonIds: configuration.addons,
-      quota: bundle.freeAddonQuota,
-      allowedAddonKeys: bundle.allowedAddonKeys,
-    })
-    : [];
-
   const quantity = Number(payload.order?.quantity ?? payload.quantity ?? 1);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
     errors.quantity = `Quantity must be an integer between 1 and ${MAX_QUANTITY}.`;
   }
 
-  const configurationJson = JSON.stringify({
-    configuration,
-    member: memberMode ? memberSlug : undefined,
-    product: memberMode ? undefined : productSlug,
-    bundle: bundle
-      ? { id: bundle.id, slug: bundle.slug, name: bundle.name, price: bundle.price, freeAddonIds }
-      : undefined,
-  });
-  if (configurationJson.length > MAX_CONFIGURATION_BYTES) {
-    errors.configuration = 'The configuration snapshot is too large.';
+  // The version the buyer picked must be the version the design belongs to.
+  const requestedVersion = cleanText(payload.order?.version, 32).toLowerCase();
+  const chosenEntity = memberMode ? member : product;
+  const entityVersion = chosenEntity && chosenEntity.versionKey
+    ? String(chosenEntity.versionKey).toLowerCase()
+    : null;
+  if (requestedVersion && !VERSION_KEYS.includes(requestedVersion)) {
+    errors.version = 'Unknown version selection.';
+  } else if (requestedVersion && entityVersion && entityVersion !== requestedVersion) {
+    errors.version = 'That design belongs to another version.';
   }
+
+  // How the order is delivered and paid. Shopee orders are settled on Shopee, so they never
+  // carry a payment method; every other path that names a delivery option must name one too.
+  // A payload with neither field predates this flow and keeps working with campus delivery.
+  const requestedFulfillment = cleanText(payload.order?.fulfillmentMethod ?? payload.fulfillmentMethod, 32).toLowerCase();
+  const fulfillmentMethod = requestedFulfillment || DEFAULT_FULFILLMENT_METHOD;
+  if (!FULFILLMENT_METHODS.includes(fulfillmentMethod)) {
+    errors.fulfillment_method = 'Choose a valid delivery option.';
+  }
+
+  const requestedPayment = cleanText(payload.order?.paymentMethod ?? payload.paymentMethod, 32).toLowerCase();
+  let paymentMethod = requestedPayment || null;
+  if (fulfillmentMethod === 'shopee_external') {
+    paymentMethod = null;
+  } else if (requestedPayment) {
+    if (!activePaymentMethods(catalogData).some((method) => method.code === requestedPayment)) {
+      errors.payment_method = 'That payment method is not available right now.';
+    }
+  } else if (requestedFulfillment) {
+    errors.payment_method = 'Choose a payment method.';
+  }
+
+  const categories = optionCategoriesFor(catalogData);
+  const items = optionInventory(catalogData);
+  const selections = offeredSelections(configurationSelections(configuration), categories);
+  // The stored snapshot must not claim a clasp or add-on the catalogue never offered.
+  if (!(selections.clasp && selections.clasp.length)) configuration.clasp = '';
+  if (!(selections.addon && selections.addon.length)) configuration.addons = [];
+  validateSelections(selections, categories, items, errors);
 
   if (Object.keys(errors).length) throw new ValidationError(errors);
 
@@ -282,16 +445,38 @@ function validateOrderPayload(payload = {}, context = {}) {
     artistName = group ? group.name : (pricedProduct.groupName || null);
   }
 
-  // A bundle replaces the shared base price; the free add-ons are recomputed here so a client
-  // cannot mark its own add-ons as included.
+  // A bundle replaces the shared base price, and the free quota is recomputed here so a client
+  // cannot mark its own options as included.
   if (bundle) basePrice = Number(bundle.price);
-  const quote = quoteFor({
+  const quote = pricing.quoteSelections({
     basePrice,
-    configuration,
+    bundle: bundle
+      ? {
+        price: Number(bundle.price),
+        freeAddonQuota: bundle.freeAddonQuota,
+        allowedAddonKeys: bundle.allowedAddonKeys,
+      }
+      : null,
+    categories,
+    items,
+    selections,
+    personalization: { key: 'initial', active: Boolean(configuration.initial) },
     quantity,
-    pricingTable,
-    bundle: bundle ? { price: Number(bundle.price), freeAddonIds } : null,
   });
+  const freeAddonIds = quote.freeAddonIds;
+
+  const configurationJson = JSON.stringify({
+    configuration,
+    version: requestedVersion || entityVersion || undefined,
+    member: memberMode ? memberSlug : undefined,
+    product: memberMode ? undefined : productSlug,
+    bundle: bundle
+      ? { id: bundle.id, slug: bundle.slug, name: bundle.name, price: bundle.price, freeAddonIds }
+      : undefined,
+  });
+  if (configurationJson.length > MAX_CONFIGURATION_BYTES) {
+    throw new ValidationError({ configuration: 'The configuration snapshot is too large.' });
+  }
   const submittedTotal = Number(payload.order?.total);
 
   const bundleSuffix = bundle ? ` · ${bundle.name}` : '';
@@ -309,6 +494,9 @@ function validateOrderPayload(payload = {}, context = {}) {
       : null,
     configuration,
     configurationJson,
+    version: requestedVersion || entityVersion || null,
+    fulfillmentMethod,
+    paymentMethod,
     quantity,
     quote,
     submittedTotal: Number.isFinite(submittedTotal) ? submittedTotal : null,
@@ -342,4 +530,6 @@ module.exports = {
   ALLOWED_CLASPS,
   ALLOWED_ADDONS,
   MAX_QUANTITY,
+  FULFILLMENT_METHODS,
+  DEFAULT_FULFILLMENT_METHOD,
 };

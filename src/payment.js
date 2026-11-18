@@ -17,6 +17,67 @@
   $('#paymentCustomerName').textContent = order.customer?.name || 'Customer';
   $('#paymentCustomerAddress').textContent = order.customer?.address || 'Address not provided';
 
+  const FULFILLMENT_LABELS = {
+    campus_delivery: 'Campus delivery (Telkom University Jakarta)',
+    cod_telkom: 'COD / meet-up (Telkom University Jakarta)',
+    shopee_external: 'External order via Shopee',
+  };
+  const fulfillmentNote = $('#paymentFulfillmentNote');
+  if (fulfillmentNote) {
+    fulfillmentNote.textContent = FULFILLMENT_LABELS[order.fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery;
+  }
+
+  // Only the method the buyer picked is shown. The stored snapshot renders immediately, and the
+  // live table replaces it so an admin edit (label, instructions, QRIS image) is honoured.
+  const storedPayment = order.payment || null;
+  const METHOD_MARKS = { qris: '▦', cash: 'Rp', transfer: '⇄' };
+  const METHOD_LABELS = { qris: 'QRIS', cash: 'Cash', transfer: 'Bank Transfer' };
+  const methodCode = String(order.paymentMethod || (storedPayment && storedPayment.code) || 'qris').toLowerCase();
+
+  function applyPaymentMethod(method) {
+    const code = String((method && method.code) || methodCode).toLowerCase();
+    const label = (method && method.label) || (storedPayment && storedPayment.label) || METHOD_LABELS[code] || 'Payment';
+    const instructions = (method && method.instructions) || (storedPayment && storedPayment.instructions) || '';
+    const imageUrl = (method && method.imageUrl) || (storedPayment && storedPayment.imageUrl) || null;
+
+    const badge = $('#paymentMethodBadge');
+    if (badge) badge.textContent = label.toUpperCase();
+    const labelEl = $('#paymentMethodLabel');
+    if (labelEl) labelEl.textContent = label;
+    const instructionsEl = $('#paymentInstructions');
+    if (instructionsEl) {
+      instructionsEl.textContent = instructions || 'Follow the payment instructions from our WhatsApp CS.';
+    }
+
+    const mark = $('#paymentMethodMark');
+    if (mark) mark.textContent = METHOD_MARKS[code] || '▦';
+
+    const image = $('#paymentQrImage');
+    if (image) {
+      if (imageUrl) {
+        image.src = imageUrl;
+        image.alt = `${label} payment code`;
+        image.hidden = false;
+        if (mark) mark.hidden = true;
+      } else {
+        image.removeAttribute('src');
+        image.hidden = true;
+        if (mark) mark.hidden = false;
+      }
+    }
+  }
+
+  applyPaymentMethod(null);
+
+  fetch('/api/payment-methods')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => {
+      const methods = data && Array.isArray(data.paymentMethods) ? data.paymentMethods : [];
+      const match = methods.find((method) => method.code === methodCode);
+      if (match) applyPaymentMethod(match);
+    })
+    .catch(() => { /* the stored snapshot already covers this */ });
+
   // Customer verification message — shared template with the success page (src/whatsapp.js).
   const message = whatsapp.buildVerificationMessage(order.orderNumber);
   const whatsappLink = $('#whatsappConfirm');

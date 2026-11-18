@@ -108,7 +108,9 @@ test('an order is written as order + item + configuration inside one transaction
   assert.deepEqual(executed.slice(4), ['COMMIT', 'RELEASE']);
 
   const orderInsert = calls.find((call) => /^INSERT INTO orders/.test(call.sql));
-  assert.equal(orderInsert.params.length, 8);
+  assert.equal(orderInsert.params.length, 10);
+  assert.equal(orderInsert.params[6], 'campus_delivery', 'a legacy order defaults to campus delivery');
+  assert.equal(orderInsert.params[7], null, 'a legacy order carries no payment method');
   assert.ok(orderInsert.params.includes('Ayu Lestari'));
   assert.ok(orderInsert.params.includes(150000));
   assert.match(orderInsert.sql, /\?/);

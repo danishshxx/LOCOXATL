@@ -10,6 +10,21 @@
     { id: 'initial', name: 'Your initial', price: 5000, personalization: true },
   ];
 
+  const straps = [
+    { id: 'strap-white', name: 'White silicone strap', price: 8000, personalization: false },
+    { id: 'strap-black', name: 'Black silicone strap', price: 8000, personalization: false },
+  ];
+
+  /**
+   * The bundled category list mirrors the seeded option_categories rows, so the studio renders
+   * the same sections offline that the dashboard serves from MySQL.
+   */
+  const optionCategories = [
+    { slug: 'addon', name: 'Universal Add-ons', selectionMode: 'multiple', isRequired: false, countsTowardBundleFree: true, sortOrder: 0, isActive: true },
+    { slug: 'clasp', name: 'Clasps', selectionMode: 'single', isRequired: true, countsTowardBundleFree: false, sortOrder: 1, isActive: true },
+    { slug: 'silicone-strap', name: 'Silicone Straps', selectionMode: 'single', isRequired: false, countsTowardBundleFree: false, sortOrder: 2, isActive: true },
+  ];
+
   const clasps = [
     { id: 'silver', name: 'Silver clasp', price: 7000 },
     { id: 'black', name: 'Black clasp', price: 5000 },
@@ -25,11 +40,16 @@
     return {
       addons: Array.isArray(table.addons) && table.addons.length ? table.addons : addons,
       clasps: Array.isArray(table.clasps) && table.clasps.length ? table.clasps : clasps,
+      straps: Array.isArray(table.straps) && table.straps.length ? table.straps : straps,
     };
   }
 
   function getAddon(id, list = addons) {
     return list.find((addon) => addon.id === id || addon.key === id) || null;
+  }
+
+  function getStrap(id, list = straps) {
+    return list.find((strap) => strap.id === id || strap.key === id) || null;
   }
 
   function getClasp(id, list = clasps) {
@@ -59,5 +79,5 @@
     });
   }
 
-  return { addons, clasps, pricingTable, getAddon, getClasp, quote };
+  return { addons, clasps, straps, optionCategories, pricingTable, getAddon, getClasp, getStrap, quote };
 });

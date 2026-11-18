@@ -117,7 +117,7 @@ test('invalid orders are rejected with field level details', () => {
 
 test('the pricing module is still the only calculator used by the studio', () => {
   const studioScript = fs.readFileSync(path.join(root, 'src', 'studio.js'), 'utf8');
-  assert.match(studioScript, /pricing\.calculatePrice/);
+  assert.match(studioScript, /pricing\.(calculatePrice|quoteSelections)/);
   assert.doesNotMatch(studioScript, /45000|49000|8000|12000/, 'studio.js must not hardcode prices');
   assert.equal(typeof pricing.calculatePrice, 'function');
 });

@@ -17,14 +17,98 @@
     return;
   }
 
+  // Shopee orders are handed to CS from the studio, so a stale URL goes back to the builder.
+  if (order.fulfillmentMethod === 'shopee_external' && !order.orderNumber) {
+    const params = new URLSearchParams();
+    if (order.artist?.slug) params.set('artist', order.artist.slug);
+    if (order.member?.slug) params.set('member', order.member.slug);
+    if (order.version) params.set('version', order.version);
+    window.location.replace(`studio.html${params.toString() ? `?${params.toString()}` : ''}`);
+    return;
+  }
+
   const member = order.member || null;
   const config = order.configuration || {};
-  const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
+  const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
   $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
   $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
   $('#summaryConfiguration').textContent = configText;
   $('#summaryPrice').textContent = money(order.total || 0);
   $('#summaryTotal').textContent = money(order.total || 0);
+
+  // Delivery and payment come from the studio, and the payment list from the dashboard.
+  const FULFILLMENT_LABELS = {
+    campus_delivery: 'Campus delivery',
+    cod_telkom: 'COD / meet-up',
+    shopee_external: 'Shopee (external)',
+  };
+  const fulfillmentMethod = order.fulfillmentMethod || 'campus_delivery';
+  const fulfillmentEl = $('#summaryFulfillment');
+  if (fulfillmentEl) fulfillmentEl.textContent = FULFILLMENT_LABELS[fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery;
+
+  const fieldset = $('#paymentMethodFieldset');
+  const choices = $('#paymentMethodChoices');
+  const summaryPayment = $('#summaryPayment');
+  const FALLBACK_METHODS = [
+    { code: 'qris', label: 'QRIS', instructions: '' },
+    { code: 'cash', label: 'Cash', instructions: '' },
+    { code: 'transfer', label: 'Bank Transfer', instructions: '' },
+  ];
+  let paymentMethods = FALLBACK_METHODS;
+  let selectedPayment = order.paymentMethod || '';
+
+  const escapeText = (value) => String(value == null ? '' : value)
+    .replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+  function renderPaymentMethods() {
+    if (!choices) return;
+    // Shopee settles payment off-site, so no method is offered for that path.
+    if (fulfillmentMethod === 'shopee_external') {
+      if (fieldset) fieldset.hidden = true;
+      if (summaryPayment) summaryPayment.textContent = 'Shopee';
+      return;
+    }
+    if (!paymentMethods.length) {
+      if (fieldset) fieldset.hidden = false;
+      choices.innerHTML = '<p class="demo-note">No payment method is available right now. Message our WhatsApp CS and we will help.</p>';
+      return;
+    }
+
+    if (fieldset) fieldset.hidden = false;
+    if (!selectedPayment) selectedPayment = paymentMethods[0].code;
+    choices.innerHTML = paymentMethods.map((method) => {
+      const selected = method.code === selectedPayment;
+      return `<button type="button" class="bundle-choice${selected ? ' selected' : ''}" data-payment="${escapeText(method.code)}" aria-pressed="${selected}"><span>${escapeText(method.label)}</span></button>`;
+    }).join('');
+
+    choices.querySelectorAll('[data-payment]').forEach((button) => {
+      button.addEventListener('click', () => {
+        selectedPayment = button.dataset.payment;
+        renderPaymentMethods();
+      });
+    });
+
+    const active = paymentMethods.find((method) => method.code === selectedPayment);
+    if (summaryPayment) summaryPayment.textContent = active ? active.label : 'Not chosen yet';
+    order.paymentMethod = selectedPayment;
+    order.payment = {
+      code: selectedPayment,
+      label: active ? active.label : '',
+      instructions: active ? active.instructions : '',
+      imageUrl: active ? active.imageUrl : null,
+    };
+  }
+
+  renderPaymentMethods();
+
+  fetch('/api/payment-methods')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => {
+      const list = data && Array.isArray(data.paymentMethods) ? data.paymentMethods : [];
+      if (list.length) paymentMethods = list.filter((method) => method && method.isActive !== false);
+      renderPaymentMethods();
+    })
+    .catch(() => { /* the fallback list already rendered */ });
 
   const status = $('#checkoutStatus');
   let busy = false;
@@ -62,10 +146,14 @@
         member: order.member || undefined,
         product: order.product || undefined,
         bundle: order.bundle || undefined,
+        version: order.version || undefined,
+        fulfillmentMethod,
+        paymentMethod: order.paymentMethod || undefined,
         baseModel: order.baseModel || order.configuration?.base?.id,
         configuration: {
           base: config.base,
           addons: config.addons,
+          selections: order.selections || undefined,
           initial: config.initial,
           clasp: config.clasp,
           render: config.render,
@@ -118,6 +206,13 @@
       address: String(data.get('address') || '').trim(),
       note: String(data.get('note') || '').trim(),
     };
+
+    // Every path except Shopee has to name the method the buyer will pay with.
+    if (fulfillmentMethod !== 'shopee_external' && !order.paymentMethod) {
+      setStatus('Choose a payment method.', 'error');
+      if (choices) choices.scrollIntoView({ block: 'center' });
+      return;
+    }
 
     setBusy(true);
     setStatus('Saving your order…');

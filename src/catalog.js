@@ -114,6 +114,7 @@
       groupSlug: String((member && (member.groupSlug || member.group_slug)) || '').trim(),
       portraitUrl: member && member.portraitUrl ? String(member.portraitUrl) : null,
       designImageUrl: member && member.designImageUrl ? String(member.designImageUrl) : null,
+      versionKey: String((member && member.versionKey) || 'yellow').toLowerCase(),
       isActive: member && member.isActive === false ? false : true,
       sortOrder: Number.isInteger(member && member.sortOrder) ? member.sortOrder : 0,
     };

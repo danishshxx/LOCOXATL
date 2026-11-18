@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_address TEXT NOT NULL,
   customer_note TEXT NULL,
   admin_notes TEXT NULL,
+  fulfillment_method VARCHAR(32) NOT NULL DEFAULT 'campus_delivery',
+  payment_method VARCHAR(32) NULL,
   total_amount INT UNSIGNED NOT NULL,
   order_status VARCHAR(40) NOT NULL DEFAULT 'waiting_for_payment',
   payment_verified_at TIMESTAMP NULL,
@@ -98,6 +100,9 @@ CREATE TABLE IF NOT EXISTS catalog_groups (
   hero_image_url VARCHAR(512) NULL,
   cover_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
   hero_focal VARCHAR(32) NOT NULL DEFAULT '50% 50%',
+  versions_json JSON NULL,
+  has_versions TINYINT(1) NOT NULL DEFAULT 1,
+  is_custom_design TINYINT(1) NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -116,6 +121,7 @@ CREATE TABLE IF NOT EXISTS artist_members (
   name VARCHAR(120) NOT NULL,
   portrait_url VARCHAR(512) NULL,
   design_image_url VARCHAR(512) NULL,
+  version_key VARCHAR(32) NOT NULL DEFAULT 'yellow',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +152,7 @@ CREATE TABLE IF NOT EXISTS catalog_products (
   slug VARCHAR(64) NOT NULL,
   name VARCHAR(120) NOT NULL,
   template_key VARCHAR(64) NOT NULL,
+  version_key VARCHAR(32) NOT NULL DEFAULT 'yellow',
   description TEXT NULL,
   base_price INT UNSIGNED NOT NULL,
   image_url VARCHAR(255) NULL,
@@ -197,4 +204,39 @@ CREATE TABLE IF NOT EXISTS catalog_bundles (
   KEY idx_catalog_bundles_active_order (is_active, sort_order),
   KEY idx_catalog_bundles_group (group_id),
   CONSTRAINT fk_bundle_group FOREIGN KEY (group_id) REFERENCES catalog_groups (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Customer-facing option groups. pricing_options.category stores one of these slugs, so a new
+-- category (a strap, a charm) is a data change rather than a deploy.
+CREATE TABLE IF NOT EXISTS option_categories (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  slug VARCHAR(32) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  selection_mode VARCHAR(16) NOT NULL DEFAULT 'multiple',
+  is_required TINYINT(1) NOT NULL DEFAULT 0,
+  counts_toward_bundle_free TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_option_category_slug (slug),
+  KEY idx_option_categories_active_order (is_active, sort_order),
+  CONSTRAINT chk_option_category_selection_mode CHECK (selection_mode IN ('single', 'multiple'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- How a buyer pays. The admin dashboard edits the label, instructions and QRIS image, and can
+-- switch a method off without deleting it, so historical orders keep their code.
+CREATE TABLE IF NOT EXISTS payment_methods (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  code VARCHAR(32) NOT NULL,
+  label VARCHAR(80) NOT NULL,
+  instructions TEXT NULL,
+  image_url VARCHAR(512) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_payment_method_code (code),
+  KEY idx_payment_methods_active_order (is_active, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

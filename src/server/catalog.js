@@ -9,11 +9,17 @@ const uploads = require('./uploads');
 // data in src/catalog.js and src/options.js stays authoritative whenever the database is
 // unreachable, the tables are missing, or they are still empty.
 
-const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
-const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
-const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
+const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
+const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 const BUNDLE_FIELDS = 'id, group_id, slug, name, description, bundle_price, free_addon_quota, allowed_addon_keys, image_url, is_active, sort_order, created_at, updated_at';
+const CATEGORY_FIELDS = 'id, slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active, created_at, updated_at';
+
+// The two product versions the storefront offers as cards before the member list.
+const VERSION_KEYS = ['yellow', 'pink'];
+const VERSION_LABELS = { yellow: 'Yellow Version', pink: 'Pink Version' };
+const DEFAULT_VERSION = 'yellow';
 
 // One shared keychain product: a single global base silhouette plus one shared base price row.
 // Member artwork (artist_members.design_image_url) is a design applied to this product, never a
@@ -117,6 +123,50 @@ function parsePrice(value, fieldName = 'price') {
   return number;
 }
 
+function parseVersionKey(value) {
+  const key = cleanText(value, 32).toLowerCase();
+  return VERSION_KEYS.includes(key) ? key : DEFAULT_VERSION;
+}
+
+function normalizeVersionInput(value) {
+  const key = cleanText(value, 32).toLowerCase();
+  if (!VERSION_KEYS.includes(key)) {
+    throw new CatalogError('invalid_version', `version must be one of: ${VERSION_KEYS.join(', ')}.`);
+  }
+  return key;
+}
+
+function safeFocal(value) {
+  const text = cleanText(value, 32).toLowerCase();
+  return FOCAL_PATTERN.test(text) ? text : DEFAULT_FOCAL;
+}
+
+/** Yellow/Pink card copy stored per group. Missing keys fall back to empty labels. */
+function parseVersions(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      source = null;
+    }
+  }
+  const raw = source && typeof source === 'object' ? source : {};
+  const result = {};
+  for (const key of VERSION_KEYS) {
+    const entry = raw[key] && typeof raw[key] === 'object' ? raw[key] : {};
+    result[key] = {
+      key,
+      label: VERSION_LABELS[key],
+      title: cleanText(entry.title, MAX_NAME_LENGTH),
+      tagline: cleanText(entry.tagline, MAX_TAGLINE_LENGTH),
+      coverImageUrl: entry.coverImageUrl ? String(entry.coverImageUrl) : null,
+      coverFocal: safeFocal(entry.coverFocal),
+    };
+  }
+  return result;
+}
+
 function mapGroup(row) {
   return {
     id: Number(row.id),
@@ -131,6 +181,9 @@ function mapGroup(row) {
     heroFocal: row.hero_focal || DEFAULT_FOCAL,
     isActive: Boolean(row.is_active),
     sortOrder: Number(row.sort_order) || 0,
+    versions: parseVersions(row.versions_json),
+    hasVersions: row.has_versions === undefined || row.has_versions === null ? true : Boolean(Number(row.has_versions)),
+    isCustomDesign: Boolean(Number(row.is_custom_design || 0)),
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
   };
@@ -144,6 +197,7 @@ function mapMember(row) {
     name: row.name,
     portraitUrl: row.portrait_url || null,
     designImageUrl: row.design_image_url || null,
+    versionKey: parseVersionKey(row.version_key),
     isActive: Boolean(row.is_active),
     sortOrder: Number(row.sort_order) || 0,
     createdAt: row.created_at || null,
@@ -167,6 +221,7 @@ function mapProduct(row, group) {
     key: row.slug,
     name: row.name,
     templateKey: row.template_key,
+    versionKey: parseVersionKey(row.version_key),
     baseId: staticCatalog.baseIdForTemplate(row.template_key),
     description: row.description || '',
     price: Number(row.base_price) || 0,
@@ -191,6 +246,37 @@ function mapPricingOption(row) {
   };
 }
 
+function mapOptionCategory(row) {
+  return {
+    id: Number(row.id),
+    slug: row.slug,
+    name: row.name,
+    selectionMode: row.selection_mode === 'single' ? 'single' : 'multiple',
+    isRequired: Boolean(row.is_required),
+    countsTowardBundleFree: Boolean(row.counts_toward_bundle_free),
+    sortOrder: Number(row.sort_order) || 0,
+    isActive: Boolean(row.is_active),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+/** The bundled category list, in the same shape as option_categories rows. */
+function staticOptionCategories() {
+  return staticOptions.optionCategories.map((category, index) => ({
+    id: null,
+    slug: category.slug,
+    name: category.name,
+    selectionMode: category.selectionMode === 'single' ? 'single' : 'multiple',
+    isRequired: Boolean(category.isRequired),
+    countsTowardBundleFree: category.countsTowardBundleFree !== false,
+    sortOrder: Number.isInteger(category.sortOrder) ? category.sortOrder : index,
+    isActive: true,
+    createdAt: null,
+    updatedAt: null,
+  }));
+}
+
 /** The static catalogue expressed in the same shape as a database group. */
 function staticGroups() {
   return staticCatalog.artists.map((artist, index) => ({
@@ -204,6 +290,7 @@ function staticGroups() {
     heroImageUrl: null,
     coverFocal: DEFAULT_FOCAL,
     heroFocal: DEFAULT_FOCAL,
+    versions: parseVersions(null),
     isActive: true,
     sortOrder: index,
     createdAt: null,
@@ -222,6 +309,7 @@ function normalizeStaticProduct(product) {
     key: product.templateSlug,
     name: product.name,
     templateKey: product.templateKey || null,
+    versionKey: DEFAULT_VERSION,
     baseId: product.baseId,
     description: product.description || '',
     price: Number(product.price) || 0,
@@ -266,28 +354,39 @@ function staticPricingTable() {
     sortOrder: index,
     updatedAt: null,
   });
+  const addons = staticOptions.addons.map((addon, index) => toOption(addon, 'addon', index));
+  const clasps = staticOptions.clasps.map((clasp, index) => toOption(clasp, 'clasp', index));
+  const straps = (staticOptions.straps || []).map((strap, index) => toOption(strap, 'silicone-strap', index));
   return {
     base: defaultBaseOption(),
-    addons: staticOptions.addons.map((addon, index) => toOption(addon, 'addon', index)),
-    clasps: staticOptions.clasps.map((clasp, index) => toOption(clasp, 'clasp', index)),
+    addons,
+    clasps,
+    items: [...addons, ...clasps, ...straps],
   };
 }
 
 function groupPricingOptions(options) {
-  const addons = [];
-  const clasps = [];
+  const buckets = new Map();
   let base = null;
   for (const option of options) {
     if (option.category === 'base') {
       if (!base) base = option;
-    } else if (option.category === 'clasp') clasps.push(option);
-    else addons.push(option);
+      continue;
+    }
+    const category = String(option.category || 'addon');
+    if (!buckets.has(category)) buckets.set(category, []);
+    buckets.get(category).push(option);
   }
   const byOrder = (a, b) => (a.sortOrder - b.sortOrder) || (a.key < b.key ? -1 : 1);
+  // `items` is the category-agnostic list the pricing engine reads; addons/clasps stay for the
+  // older callers that only know those two names.
+  const items = [];
+  for (const list of buckets.values()) items.push(...list);
   return {
     base: base || defaultBaseOption(),
-    addons: addons.sort(byOrder),
-    clasps: clasps.sort(byOrder),
+    addons: (buckets.get('addon') || []).slice().sort(byOrder),
+    clasps: (buckets.get('clasp') || []).slice().sort(byOrder),
+    items: items.sort(byOrder),
   };
 }
 
@@ -312,6 +411,8 @@ function fallbackCatalog() {
     products: staticProducts(),
     bundles: [],
     options,
+    optionCategories: staticOptionCategories(),
+    paymentMethods: staticPaymentMethods(),
     product: productFromOptions(DEFAULT_BASE_MODEL, options),
   };
 }
@@ -429,6 +530,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
     const members = await loadMembers({ activeOnly });
     const products = await loadProductsForGroups(groups, { activeOnly });
     const options = await loadPricingTable({ activeOnly: true });
+    const optionCategories = await loadOptionCategories({ activeOnly: true });
     const bundles = await loadBundles({ activeOnly, groups });
     // The storefront needs to group members by slug, and the browser never sees ids it should not
     // need. Attaching groupSlug here keeps the client rendering logic free of id lookups.
@@ -439,7 +541,16 @@ async function loadCatalog({ activeOnly = true } = {}) {
     }));
     const settingsRow = await loadProductSettingsRow();
     const product = productFromOptions(settingsRow ? settingsRow.base_model : DEFAULT_BASE_MODEL, options);
-    return { source: 'database', groups, members: membersWithGroup, products, bundles, options, product };
+    // Payment methods are ancillary: if that table cannot be read, the bundled defaults keep the
+    // storefront and the order API usable instead of failing the whole catalogue.
+    let paymentMethods = staticPaymentMethods();
+    try {
+      const allPaymentMethods = await listPaymentMethods({ activeOnly: false });
+      paymentMethods = allPaymentMethods.some((method) => method.id === null)
+        ? allPaymentMethods
+        : allPaymentMethods.filter((method) => method.isActive);
+    } catch { /* keep the defaults */ }
+    return { source: 'database', groups, members: membersWithGroup, products, bundles, options, optionCategories, paymentMethods, product };
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return fallbackCatalog();
@@ -513,7 +624,56 @@ function normalizeGroupInput(input = {}, { partial = false } = {}) {
     }
     result.isActive = values.isActive;
   }
+  if (values.versions !== undefined) result.versions = values.versions;
+  if (values.hasVersions !== undefined) {
+    if (typeof values.hasVersions !== 'boolean') {
+      throw new CatalogError('invalid_has_versions', 'hasVersions must be a boolean.');
+    }
+    result.hasVersions = values.hasVersions;
+  }
+  if (values.isCustomDesign !== undefined) {
+    if (typeof values.isCustomDesign !== 'boolean') {
+      throw new CatalogError('invalid_custom_design', 'isCustomDesign must be a boolean.');
+    }
+    result.isCustomDesign = values.isCustomDesign;
+    // A custom design group has no Yellow/Pink step, so the version picker defaults off unless
+    // the caller explicitly asked for both.
+    if (values.isCustomDesign && values.hasVersions === undefined) result.hasVersions = false;
+  }
 
+  return result;
+}
+
+/**
+ * Yellow/Pink card settings. A cover sent as a data URL goes through the same upload path the
+ * other group images use, and the previous file is removed once the new URL is committed.
+ */
+async function resolveGroupVersions(groupSlug, incoming, previous) {
+  const source = incoming && typeof incoming === 'object' ? incoming : {};
+  const prior = previous && typeof previous === 'object' ? previous : {};
+  const result = {};
+
+  for (const key of VERSION_KEYS) {
+    const next = source[key] && typeof source[key] === 'object' ? source[key] : {};
+    const before = prior[key] && typeof prior[key] === 'object' ? prior[key] : {};
+    let cover = next.coverImageUrl !== undefined ? next.coverImageUrl : (before.coverImageUrl || null);
+
+    if (typeof cover === 'string' && cover.startsWith('data:image/')) {
+      const stored = await uploads.saveCatalogImage(`group-${groupSlug}-${key}`, cover);
+      if (before.coverImageUrl && before.coverImageUrl !== stored) {
+        await uploads.removeCatalogImage(before.coverImageUrl);
+      }
+      cover = stored;
+    }
+    if (cover === '') cover = null;
+
+    result[key] = {
+      title: cleanText(next.title !== undefined ? next.title : before.title, MAX_NAME_LENGTH),
+      tagline: cleanText(next.tagline !== undefined ? next.tagline : before.tagline, MAX_TAGLINE_LENGTH),
+      coverImageUrl: cover,
+      coverFocal: safeFocal(next.coverFocal !== undefined ? next.coverFocal : before.coverFocal),
+    };
+  }
   return result;
 }
 
@@ -531,12 +691,15 @@ async function createGroup(input = {}) {
   const values = normalizeGroupInput(input);
   const sortOrder = values.sortOrder === undefined ? await nextSortOrder() : values.sortOrder;
   const pool = getPool();
+  const versions = values.versions === undefined
+    ? null
+    : await resolveGroupVersions(values.slug, values.versions, null);
 
   try {
     const [result] = await pool.execute(
       `INSERT INTO catalog_groups
-        (slug, name, tagline, eyebrow, description, cover_focal, hero_focal, is_active, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (slug, name, tagline, eyebrow, description, cover_focal, hero_focal, is_active, sort_order, versions_json, has_versions, is_custom_design)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         values.slug,
         values.name,
@@ -547,6 +710,9 @@ async function createGroup(input = {}) {
         values.heroFocal || DEFAULT_FOCAL,
         values.isActive === false ? 0 : 1,
         sortOrder,
+        versions ? JSON.stringify(versions) : null,
+        values.hasVersions === false ? 0 : 1,
+        values.isCustomDesign ? 1 : 0,
       ],
     );
     return getGroupById(result.insertId);
@@ -564,6 +730,7 @@ async function updateGroup(id, input = {}) {
   }
 
   const groupId = parseGroupId(id);
+  const existing = await getGroupById(groupId);
   const values = normalizeGroupInput(input, { partial: true });
 
   const assignments = [];
@@ -577,6 +744,13 @@ async function updateGroup(id, input = {}) {
   if (values.heroFocal !== undefined) { assignments.push('hero_focal = ?'); params.push(values.heroFocal); }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
+  if (values.hasVersions !== undefined) { assignments.push('has_versions = ?'); params.push(values.hasVersions ? 1 : 0); }
+  if (values.isCustomDesign !== undefined) { assignments.push('is_custom_design = ?'); params.push(values.isCustomDesign ? 1 : 0); }
+  if (values.versions !== undefined) {
+    const versions = await resolveGroupVersions(existing.slug, values.versions, existing.versions);
+    assignments.push('versions_json = ?');
+    params.push(JSON.stringify(versions));
+  }
 
   if (!assignments.length) {
     throw new CatalogError('no_changes', 'Provide at least one field to update.');
@@ -1008,6 +1182,7 @@ function normalizeProductInput(input = {}, { partial = false } = {}) {
 
   if (values.description !== undefined) result.description = cleanMultiline(values.description, MAX_DESCRIPTION_LENGTH);
   if (values.imageUrl !== undefined) result.imageUrl = normalizeImageInput(values.imageUrl);
+  if (values.versionKey !== undefined) result.versionKey = normalizeVersionInput(values.versionKey);
   if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
     result.sortOrder = parseSortOrder(values.sortOrder);
   }
@@ -1052,8 +1227,8 @@ async function createProduct(input = {}) {
   try {
     const [result] = await pool.execute(
       `INSERT INTO catalog_products
-        (group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, version_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         groupId,
         slug,
@@ -1064,6 +1239,7 @@ async function createProduct(input = {}) {
         imageUrl,
         values.isActive === false ? 0 : 1,
         sortOrder,
+        values.versionKey || DEFAULT_VERSION,
       ],
     );
     return getProductById(result.insertId);
@@ -1095,6 +1271,7 @@ async function updateProduct(id, input = {}) {
   if (values.templateKey !== undefined) { assignments.push('template_key = ?'); params.push(values.templateKey); }
   if (values.description !== undefined) { assignments.push('description = ?'); params.push(values.description); }
   if (values.basePrice !== undefined) { assignments.push('base_price = ?'); params.push(values.basePrice); }
+  if (values.versionKey !== undefined) { assignments.push('version_key = ?'); params.push(values.versionKey); }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
 
@@ -1212,6 +1389,7 @@ function normalizeMemberInput(input = {}, { partial = false } = {}) {
 
   if (values.portraitUrl !== undefined) result.portraitUrl = normalizeImageInput(values.portraitUrl);
   if (values.designImageUrl !== undefined) result.designImageUrl = normalizeImageInput(values.designImageUrl);
+  if (values.versionKey !== undefined) result.versionKey = normalizeVersionInput(values.versionKey);
   if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
     result.sortOrder = parseSortOrder(values.sortOrder);
   }
@@ -1261,9 +1439,18 @@ async function createMember(input = {}) {
   try {
     const [result] = await getPool().execute(
       `INSERT INTO artist_members
-        (group_id, slug, name, portrait_url, design_image_url, is_active, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [groupId, slug, values.name, portraitUrl, designImageUrl, values.isActive === false ? 0 : 1, sortOrder],
+        (group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, version_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        groupId,
+        slug,
+        values.name,
+        portraitUrl,
+        designImageUrl,
+        values.isActive === false ? 0 : 1,
+        sortOrder,
+        values.versionKey || DEFAULT_VERSION,
+      ],
     );
     return getMemberById(result.insertId);
   } catch (error) {
@@ -1292,6 +1479,7 @@ async function updateMember(id, input = {}) {
     assignments.push('slug = ?');
     params.push(slug);
   }
+  if (values.versionKey !== undefined) { assignments.push('version_key = ?'); params.push(values.versionKey); }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
 
@@ -1511,6 +1699,335 @@ async function updatePricing(payload) {
 }
 
 // ---------------------------------------------------------------------------
+// Option categories and their items
+//
+// pricing_options.category stores a slug from option_categories, so the dashboard can add a
+// whole new choice group (a strap, a charm) without a deploy. `selection_mode` decides single
+// versus multiple and `counts_toward_bundle_free` decides whether a bundle quota may cover it.
+// ---------------------------------------------------------------------------
+
+const LEGACY_CATEGORY_SLUGS = ['addon', 'clasp'];
+
+function parseCategoryId(value) {
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    throw new CatalogError('invalid_id', 'Category id must be a positive integer.');
+  }
+  return id;
+}
+
+function normalizeSelectionMode(value, fallback = 'multiple') {
+  const mode = cleanText(value, 16).toLowerCase();
+  if (!mode) return fallback;
+  if (mode !== 'single' && mode !== 'multiple') {
+    throw new CatalogError('invalid_selection_mode', 'selectionMode must be "single" or "multiple".');
+  }
+  return mode;
+}
+
+function normalizeCategorySlug(value) {
+  const slug = slugify(cleanText(value, 32));
+  if (!slug) throw new CatalogError('invalid_slug', 'Category slug must contain letters or numbers.');
+  return slug;
+}
+
+function normalizeOptionCategoryInput(input = {}, { partial = false } = {}) {
+  const values = input && typeof input === 'object' ? input : {};
+  const result = {};
+
+  if (!partial || values.name !== undefined) {
+    const name = cleanText(values.name, MAX_NAME_LENGTH);
+    if (name.length < 2) throw new CatalogError('invalid_name', 'Category name must be at least 2 characters.');
+    result.name = name;
+  }
+  if (!partial || values.slug !== undefined) {
+    const raw = values.slug === undefined || values.slug === '' ? (result.name || '') : values.slug;
+    result.slug = normalizeCategorySlug(raw);
+  }
+  if (!partial || values.selectionMode !== undefined) {
+    result.selectionMode = normalizeSelectionMode(values.selectionMode);
+  }
+  for (const field of ['isRequired', 'countsTowardBundleFree', 'isActive']) {
+    if (values[field] === undefined) continue;
+    if (typeof values[field] !== 'boolean') {
+      throw new CatalogError('invalid_flag', `${field} must be a boolean.`);
+    }
+    result[field] = values[field];
+  }
+  if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
+    result.sortOrder = parseSortOrder(values.sortOrder);
+  }
+  return result;
+}
+
+function slugFromLabel(value) {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function normalizePricingItemInput(input = {}, { partial = false } = {}) {
+  const values = input && typeof input === 'object' ? input : {};
+  const result = {};
+
+  if (!partial || values.category !== undefined) {
+    result.category = normalizeCategorySlug(values.category);
+  }
+  if (!partial || values.optionKey !== undefined || values.key !== undefined) {
+    const rawKey = cleanText(values.optionKey ?? values.key, 64).toLowerCase();
+    // The dashboard leaves the key blank and expects it derived from the label.
+    const key = rawKey || slugFromLabel(values.label);
+    if (!key) throw new CatalogError('invalid_option_key', 'optionKey is required.');
+    result.optionKey = key;
+  }
+  if (!partial || values.label !== undefined) {
+    const label = cleanText(values.label, MAX_LABEL_LENGTH);
+    if (!label) throw new CatalogError('invalid_label', 'Option label cannot be empty.');
+    result.label = label;
+  }
+  if (!partial || values.price !== undefined) {
+    result.price = parsePrice(values.price, 'price');
+  }
+  if (values.isActive !== undefined) {
+    if (typeof values.isActive !== 'boolean') {
+      throw new CatalogError('invalid_active', 'isActive must be a boolean.');
+    }
+    result.isActive = values.isActive;
+  }
+  if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
+    result.sortOrder = parseSortOrder(values.sortOrder);
+  }
+  return result;
+}
+
+async function queryCategoryRows({ activeOnly = false } = {}) {
+  const [rows] = await getPool().execute(
+    `SELECT ${CATEGORY_FIELDS} FROM option_categories ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY sort_order ASC, id ASC`,
+  );
+  return rows;
+}
+
+/**
+ * Categories are optional in the same way members and bundles are: a database upgraded before
+ * migration 010 keeps working with the two bundled categories.
+ */
+async function loadOptionCategories({ activeOnly }) {
+  try {
+    const rows = await queryCategoryRows({ activeOnly });
+    return rows.length ? rows.map(mapOptionCategory) : staticOptionCategories();
+  } catch (error) {
+    if (!isMissingDatabase(error)) throw error;
+    return staticOptionCategories();
+  }
+}
+
+async function listOptionCategories() {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Option categories require the MySQL connection.', 503);
+  }
+  return (await queryCategoryRows({ activeOnly: false })).map(mapOptionCategory);
+}
+
+async function getOptionCategoryById(id) {
+  const categoryId = parseCategoryId(id);
+  const [rows] = await getPool().execute(
+    `SELECT ${CATEGORY_FIELDS} FROM option_categories WHERE id = ? LIMIT 1`,
+    [categoryId],
+  );
+  if (!rows.length) throw new CatalogError('category_not_found', 'Option category was not found.', 404);
+  return mapOptionCategory(rows[0]);
+}
+
+async function createOptionCategory(input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Option categories require the MySQL connection.', 503);
+  }
+
+  const values = normalizeOptionCategoryInput(input);
+  const pool = getPool();
+  let sortOrder = values.sortOrder;
+  if (sortOrder === undefined) {
+    const [rows] = await pool.execute('SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM option_categories');
+    sortOrder = Number(rows[0] && rows[0].next_order) || 0;
+  }
+
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO option_categories
+        (slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        values.slug,
+        values.name,
+        values.selectionMode || 'multiple',
+        values.isRequired === true ? 1 : 0,
+        values.countsTowardBundleFree === false ? 0 : 1,
+        sortOrder,
+        values.isActive === false ? 0 : 1,
+      ],
+    );
+    return getOptionCategoryById(result.insertId);
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('category_exists', 'A category with that slug already exists.', 409);
+    }
+    throw error;
+  }
+}
+
+async function updateOptionCategory(id, input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Option categories require the MySQL connection.', 503);
+  }
+
+  const existing = await getOptionCategoryById(id);
+  const values = normalizeOptionCategoryInput(input, { partial: true });
+
+  const assignments = [];
+  const params = [];
+  if (values.name !== undefined) { assignments.push('name = ?'); params.push(values.name); }
+  if (values.slug !== undefined) { assignments.push('slug = ?'); params.push(values.slug); }
+  if (values.selectionMode !== undefined) { assignments.push('selection_mode = ?'); params.push(values.selectionMode); }
+  if (values.isRequired !== undefined) { assignments.push('is_required = ?'); params.push(values.isRequired ? 1 : 0); }
+  if (values.countsTowardBundleFree !== undefined) {
+    assignments.push('counts_toward_bundle_free = ?');
+    params.push(values.countsTowardBundleFree ? 1 : 0);
+  }
+  if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
+  if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
+
+  if (!assignments.length) {
+    throw new CatalogError('no_changes', 'Provide at least one field to update.');
+  }
+
+  try {
+    await getPool().execute(
+      `UPDATE option_categories SET ${assignments.join(', ')} WHERE id = ?`,
+      [...params, existing.id],
+    );
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('category_exists', 'That slug is already used by another category.', 409);
+    }
+    throw error;
+  }
+  return getOptionCategoryById(existing.id);
+}
+
+async function assertCategoryExists(slug) {
+  const normalized = normalizeCategorySlug(slug);
+  try {
+    const [rows] = await getPool().execute(
+      'SELECT id FROM option_categories WHERE slug = ? LIMIT 1',
+      [normalized],
+    );
+    if (!rows.length) {
+      throw new CatalogError('unknown_category', `Unknown option category: ${normalized}.`, 404);
+    }
+  } catch (error) {
+    if (!isMissingDatabase(error)) throw error;
+    // A database without migration 010 still accepts the two categories it has always had.
+    if (!LEGACY_CATEGORY_SLUGS.includes(normalized)) {
+      throw new CatalogError('unknown_category', `Unknown option category: ${normalized}.`, 404);
+    }
+  }
+  return normalized;
+}
+
+async function getPricingOptionById(id) {
+  const optionId = Number(id);
+  if (!Number.isSafeInteger(optionId) || optionId < 1) {
+    throw new CatalogError('invalid_id', 'Option id must be a positive integer.');
+  }
+  const [rows] = await getPool().execute(
+    `SELECT ${PRICING_FIELDS} FROM pricing_options WHERE id = ? LIMIT 1`,
+    [optionId],
+  );
+  if (!rows.length) throw new CatalogError('option_not_found', 'Pricing option was not found.', 404);
+  return mapPricingOption(rows[0]);
+}
+
+async function createPricingOption(input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Pricing options require the MySQL connection.', 503);
+  }
+
+  const values = normalizePricingItemInput(input);
+  const category = await assertCategoryExists(values.category);
+  const pool = getPool();
+  let sortOrder = values.sortOrder;
+  if (sortOrder === undefined) {
+    const [rows] = await pool.execute(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM pricing_options WHERE category = ?',
+      [category],
+    );
+    sortOrder = Number(rows[0] && rows[0].next_order) || 0;
+  }
+
+  try {
+    const [result] = await pool.execute(
+      `INSERT INTO pricing_options (category, option_key, label, price, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [category, values.optionKey, values.label, values.price, values.isActive === false ? 0 : 1, sortOrder],
+    );
+    return getPricingOptionById(result.insertId);
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('option_exists', 'An option with that key already exists.', 409);
+    }
+    throw error;
+  }
+}
+
+async function updatePricingOption(id, input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Pricing options require the MySQL connection.', 503);
+  }
+
+  const existing = await getPricingOptionById(id);
+  const values = normalizePricingItemInput(input, { partial: true });
+  if (values.category !== undefined) values.category = await assertCategoryExists(values.category);
+
+  const assignments = [];
+  const params = [];
+  if (values.category !== undefined) { assignments.push('category = ?'); params.push(values.category); }
+  if (values.optionKey !== undefined) { assignments.push('option_key = ?'); params.push(values.optionKey); }
+  if (values.label !== undefined) { assignments.push('label = ?'); params.push(values.label); }
+  if (values.price !== undefined) { assignments.push('price = ?'); params.push(values.price); }
+  if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
+  if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
+
+  if (!assignments.length) {
+    throw new CatalogError('no_changes', 'Provide at least one field to update.');
+  }
+
+  try {
+    await getPool().execute(
+      `UPDATE pricing_options SET ${assignments.join(', ')} WHERE id = ?`,
+      [...params, existing.id],
+    );
+  } catch (error) {
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      throw new CatalogError('option_exists', 'That option key is already used.', 409);
+    }
+    throw error;
+  }
+  return getPricingOptionById(existing.id);
+}
+
+async function deletePricingOption(id) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Pricing options require the MySQL connection.', 503);
+  }
+  const existing = await getPricingOptionById(id);
+  await getPool().execute('DELETE FROM pricing_options WHERE id = ?', [existing.id]);
+  return { deleted: true, id: existing.id };
+}
+
+// ---------------------------------------------------------------------------
 // Single shared product settings (global silhouette + base price)
 // ---------------------------------------------------------------------------
 
@@ -1719,6 +2236,148 @@ async function seedStorefrontCatalog() {
   return { groups, products, options };
 }
 
+// ---------------------------------------------------------------------------
+// Payment methods (migration 012)
+// ---------------------------------------------------------------------------
+
+const PAYMENT_METHOD_CODES = ['qris', 'cash', 'transfer'];
+const PAYMENT_METHOD_FIELDS = 'id, code, label, instructions, image_url, is_active, sort_order, updated_at';
+
+const DEFAULT_PAYMENT_METHODS = [
+  {
+    code: 'qris',
+    label: 'QRIS',
+    instructions: 'Scan the QRIS code below with any mobile banking or e-wallet app, then send the payment proof to our WhatsApp CS.',
+    sortOrder: 0,
+  },
+  {
+    code: 'cash',
+    label: 'Cash',
+    instructions: 'Pay in cash when we meet on campus or at the COD point. Our CS will confirm the time and place on WhatsApp.',
+    sortOrder: 1,
+  },
+  {
+    code: 'transfer',
+    label: 'Bank Transfer',
+    instructions: 'Transfer to the account our CS confirms on WhatsApp, then send the transfer receipt as payment proof.',
+    sortOrder: 2,
+  },
+];
+
+function mapPaymentMethod(row) {
+  return {
+    id: row.id === undefined ? null : Number(row.id),
+    code: String(row.code),
+    label: row.label,
+    instructions: row.instructions || '',
+    imageUrl: row.image_url || null,
+    isActive: Boolean(Number(row.is_active === undefined ? 1 : row.is_active)),
+    sortOrder: Number(row.sort_order) || 0,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+/** Fallback used whenever MySQL is unreachable, so the payment page always has content. */
+function staticPaymentMethods() {
+  return DEFAULT_PAYMENT_METHODS.map((method, index) => ({
+    id: null,
+    code: method.code,
+    label: method.label,
+    instructions: method.instructions,
+    imageUrl: null,
+    isActive: true,
+    sortOrder: index,
+    updatedAt: null,
+  }));
+}
+
+async function listPaymentMethods({ activeOnly = false } = {}) {
+  if (!isConfigured()) return staticPaymentMethods();
+  try {
+    const [rows] = await getPool().execute(
+      `SELECT ${PAYMENT_METHOD_FIELDS} FROM payment_methods ${activeOnly ? 'WHERE is_active = 1' : ''} ORDER BY sort_order ASC, id ASC`,
+    );
+    if (!rows.length) return activeOnly ? [] : staticPaymentMethods();
+    return rows.map(mapPaymentMethod);
+  } catch (error) {
+    if (isMissingDatabase(error)) return staticPaymentMethods();
+    throw error;
+  }
+}
+
+function parsePaymentMethodCode(value) {
+  const code = cleanText(value, 32).toLowerCase();
+  if (!PAYMENT_METHOD_CODES.includes(code)) {
+    throw new CatalogError('invalid_payment_method', `Payment method must be one of: ${PAYMENT_METHOD_CODES.join(', ')}.`);
+  }
+  return code;
+}
+
+async function getPaymentMethodByCode(code) {
+  const [rows] = await getPool().execute(
+    `SELECT ${PAYMENT_METHOD_FIELDS} FROM payment_methods WHERE code = ? LIMIT 1`,
+    [parsePaymentMethodCode(code)],
+  );
+  if (!rows.length) throw new CatalogError('payment_method_not_found', 'Payment method was not found.', 404);
+  return mapPaymentMethod(rows[0]);
+}
+
+async function updatePaymentMethod(code, input = {}) {
+  if (!isConfigured()) {
+    throw new CatalogError('database_not_configured', 'Payment methods require the MySQL connection.', 503);
+  }
+
+  const methodCode = parsePaymentMethodCode(code);
+  const existing = await getPaymentMethodByCode(methodCode);
+  const values = input && typeof input === 'object' ? input : {};
+  const assignments = [];
+  const params = [];
+
+  if (values.label !== undefined) {
+    const label = cleanText(values.label, 80);
+    if (!label) throw new CatalogError('invalid_label', 'Payment method label cannot be empty.');
+    assignments.push('label = ?');
+    params.push(label);
+  }
+  if (values.instructions !== undefined) {
+    assignments.push('instructions = ?');
+    params.push(cleanMultiline(values.instructions, 2000) || null);
+  }
+  if (values.isActive !== undefined) {
+    if (typeof values.isActive !== 'boolean') {
+      throw new CatalogError('invalid_active', 'isActive must be a boolean.');
+    }
+    assignments.push('is_active = ?');
+    params.push(values.isActive ? 1 : 0);
+  }
+  if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
+    assignments.push('sort_order = ?');
+    params.push(parseSortOrder(values.sortOrder));
+  }
+  if (values.imageUrl !== undefined) {
+    let imageUrl = values.imageUrl;
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
+      imageUrl = await uploads.saveCatalogImage(`payment-${methodCode}`, imageUrl);
+      if (existing.imageUrl && existing.imageUrl !== imageUrl) {
+        await uploads.removeCatalogImage(existing.imageUrl);
+      }
+    }
+    if (imageUrl === '') imageUrl = null;
+    assignments.push('image_url = ?');
+    params.push(imageUrl || null);
+  }
+
+  if (!assignments.length) {
+    throw new CatalogError('no_changes', 'Provide at least one field to update.');
+  }
+
+  await getPool().execute(
+    `UPDATE payment_methods SET ${assignments.join(', ')} WHERE code = ?`,
+    [...params, methodCode],
+  );
+  return getPaymentMethodByCode(methodCode);
+}
+
 module.exports = {
   CatalogError,
   slugify,
@@ -1745,6 +2404,15 @@ module.exports = {
   updateProduct,
   listPricing,
   updatePricing,
+  listOptionCategories,
+  createOptionCategory,
+  updateOptionCategory,
+  createPricingOption,
+  updatePricingOption,
+  deletePricingOption,
+  staticOptionCategories,
+  VERSION_KEYS,
+  DEFAULT_VERSION,
   getProductSettings,
   updateProductSettings,
   seedCatalogGroups,
@@ -1754,6 +2422,11 @@ module.exports = {
   staticGroups,
   staticProducts,
   staticPricingTable,
+  listPaymentMethods,
+  getPaymentMethodByCode,
+  updatePaymentMethod,
+  staticPaymentMethods,
+  PAYMENT_METHOD_CODES,
   productsForGroups,
   groupPricingOptions,
   productFromOptions,

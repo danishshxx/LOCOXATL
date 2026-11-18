@@ -12,9 +12,9 @@ process.env.DB_NAME = 'catalog_products_test';
 
 const staticCatalog = require('../src/catalog.js');
 
-const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
-const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
-const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
+const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
+const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 const groups = [
@@ -162,6 +162,8 @@ async function execute(sql, params = []) {
   }
 
   if (/FROM catalog_bundles/i.test(query)) return [[]];
+
+  if (/FROM option_categories/i.test(query)) return [[]];
 
   throw new Error(`Unexpected catalog product test SQL: ${query}`);
 }

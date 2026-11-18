@@ -19,6 +19,10 @@
     return root && root.LocoxatlOptions ? root.LocoxatlOptions : null;
   }
 
+  // The personalization option is priced apart from the regular option lines, whichever
+  // category the dashboard places it in.
+  const PERSONALIZATION_KEYS = new Set(['initial']);
+
   function normalizeTable(table) {
     const source = table && typeof table === 'object' ? table : null;
     if (!source) return { addons: [], clasps: [] };
@@ -105,5 +109,93 @@
     return { unitPrice, subtotal, total };
   }
 
-  return { calculatePrice, priceOf, normalizeTable, freeAddonIds };
+  /**
+   * Category-agnostic quote. Every choice is a key inside a category, and the category row
+   * decides single versus multiple and whether a bundle may cover it for free, so a new
+   * dashboard category needs no code change here.
+   */
+  function quoteSelections(input = {}) {
+    const items = Array.isArray(input.items) ? input.items : [];
+    const categories = (Array.isArray(input.categories) ? input.categories : [])
+      .slice()
+      .sort((a, b) => (Number(a && a.sortOrder) || 0) - (Number(b && b.sortOrder) || 0));
+    const selections = input.selections && typeof input.selections === 'object' ? input.selections : {};
+
+    const byKey = new Map();
+    for (const item of items) {
+      // An item the dashboard switched off is not offered, so it can never be priced.
+      if (!item || item.isActive === false) continue;
+      const raw = item && item.key !== undefined && item.key !== null ? item.key : (item ? item.id : '');
+      const key = String(raw == null ? '' : raw).trim().toLowerCase();
+      if (!key) continue;
+      byKey.set(key, {
+        key,
+        price: Number(item.price) || 0,
+        category: String(item.category || '').trim().toLowerCase(),
+        personalization: Boolean(item.personalization) || PERSONALIZATION_KEYS.has(key),
+      });
+    }
+
+    const lines = [];
+    const chosen = new Set();
+    for (const category of categories) {
+      const slug = String((category && category.slug) || '').trim().toLowerCase();
+      if (!slug || category.isActive === false) continue;
+
+      const requested = selections[slug];
+      const keys = (Array.isArray(requested) ? requested : [requested])
+        .map((key) => String(key == null ? '' : key).trim().toLowerCase())
+        .filter((key) => key && byKey.has(key) && byKey.get(key).category === slug);
+      const limit = category.selectionMode === 'single' ? 1 : keys.length;
+
+      for (const key of keys.slice(0, limit)) {
+        if (chosen.has(key)) continue;
+        chosen.add(key);
+        const entry = byKey.get(key);
+        if (entry.personalization) continue;
+        lines.push({
+          key,
+          category: slug,
+          price: entry.price,
+          free: false,
+          countsTowardBundleFree: category.countsTowardBundleFree !== false,
+        });
+      }
+    }
+
+    const freeIds = input.bundle
+      ? freeAddonIds({
+        addonIds: lines.filter((line) => line.countsTowardBundleFree).map((line) => line.key),
+        quota: input.bundle.freeAddonQuota,
+        allowedAddonKeys: input.bundle.allowedAddonKeys,
+      })
+      : [];
+    for (const line of lines) line.free = freeIds.includes(line.key);
+
+    const personalizationKey = String(
+      input.personalization && input.personalization.active ? input.personalization.key || '' : '',
+    ).trim().toLowerCase();
+    const personalizationEntry = personalizationKey ? byKey.get(personalizationKey) : null;
+    // A bundle owns the base price outright; the standard base is never added on top of it.
+    const bundlePrice = input.bundle && input.bundle.price !== undefined && input.bundle.price !== null
+      ? Number(input.bundle.price)
+      : null;
+    const baseForQuote = bundlePrice !== null ? bundlePrice : (input.basePrice ?? 0);
+
+    const quote = calculatePrice({
+      basePrice: baseForQuote,
+      addonPrices: lines.map((line) => (line.free ? 0 : line.price)),
+      personalizationPrice: personalizationEntry && personalizationEntry.personalization
+        ? personalizationEntry.price
+        : 0,
+      claspPrice: 0,
+      quantity: input.quantity ?? 1,
+      shipping: input.shipping ?? 0,
+      discount: input.discount ?? 0,
+    });
+
+    return { ...quote, freeAddonIds: freeIds, lines };
+  }
+
+  return { calculatePrice, quoteSelections, priceOf, normalizeTable, freeAddonIds };
 });

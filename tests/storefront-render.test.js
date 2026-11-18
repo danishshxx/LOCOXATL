@@ -156,7 +156,7 @@ test('the artist page renders member cards and the configurable hero', async () 
     products: [],
   };
 
-  runPage(artistSource, { elements, payload, search: '?artist=blackpink' });
+  runPage(artistSource, { elements, payload, search: '?artist=blackpink&version=yellow' });
   await new Promise((resolve) => setImmediate(resolve));
 
   // Hero image + focal crop from the CMS.
@@ -197,7 +197,7 @@ test('the artist page shows a generic shared-keychain card when the group has no
     products: [],
   };
 
-  runPage(artistSource, { elements, payload, search: '?artist=newjeans' });
+  runPage(artistSource, { elements, payload, search: '?artist=newjeans&version=yellow' });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(elements.artistMembersSection.hidden, false, 'the shared keychain is still offered');
@@ -211,7 +211,7 @@ test('the artist page reports a deactivated collection instead of showing member
   const elements = artistElements();
   const payload = { source: 'database', groups: [{ slug: 'bts', name: 'BTS', isActive: true, sortOrder: 0 }], members: [], products: [] };
 
-  runPage(artistSource, { elements, payload, search: '?artist=seventeen' });
+  runPage(artistSource, { elements, payload, search: '?artist=seventeen&version=yellow' });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.match(elements.artistMemberGrid.innerHTML, /no longer available/i);
@@ -224,7 +224,7 @@ test('the artist page keeps the bundled catalogue when the API request fails', a
     window: {
       LocoxatlCatalog: catalog,
       locoxatlCatalog: Promise.reject(new Error('offline')),
-      location: { search: '?artist=blackpink' },
+      location: { search: '?artist=blackpink&version=yellow' },
     },
     document: {
       title: '',
@@ -256,7 +256,7 @@ test('a member payload with an unsafe portrait never reaches the markup', async 
     products: [],
   };
 
-  runPage(artistSource, { elements, payload, search: '?artist=blackpink' });
+  runPage(artistSource, { elements, payload, search: '?artist=blackpink&version=yellow' });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /javascript:alert/);
@@ -272,7 +272,7 @@ test('names and descriptions are HTML-escaped in both pages', async () => {
     products: [],
   };
 
-  runPage(artistSource, { elements, payload, search: '?artist=evil' });
+  runPage(artistSource, { elements, payload, search: '?artist=evil&version=yellow' });
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.doesNotMatch(elements.artistTitle.innerHTML, /<img src=x/);

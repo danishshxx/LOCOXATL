@@ -34,8 +34,8 @@ const groups = [
   },
 ];
 
-const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
-const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
+const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
+const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 
 async function execute(sql, params = []) {
   const query = sql.replace(/\s+/g, ' ').trim();
@@ -79,6 +79,8 @@ async function execute(sql, params = []) {
   if (/^SELECT .* FROM pricing_options/i.test(query)) return [[]];
 
   if (/FROM catalog_bundles/i.test(query)) return [[]];
+
+  if (/FROM option_categories/i.test(query)) return [[]];
 
   throw new Error(`Unexpected catalog image test SQL: ${query}`);
 }

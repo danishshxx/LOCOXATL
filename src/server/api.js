@@ -266,8 +266,19 @@ async function handleApiRequest(request, response, url) {
         sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
         return true;
       }
-      const { source, groups, members, products, bundles, options, product } = await serverCatalog.loadCatalog({ activeOnly: true });
-      sendJson(response, 200, { ok: true, source, groups, members, products, bundles, options, product });
+      const { source, groups, members, products, bundles, options, optionCategories, paymentMethods, product } = await serverCatalog.loadCatalog({ activeOnly: true });
+      sendJson(response, 200, { ok: true, source, groups, members, products, bundles, options, optionCategories, paymentMethods, product });
+      return true;
+    }
+
+    // GET /api/payment-methods — the active methods the buyer may choose at checkout.
+    if (segments.length === 2 && segments[1] === 'payment-methods') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, HEAD' });
+        return true;
+      }
+      const paymentMethods = await serverCatalog.listPaymentMethods({ activeOnly: true });
+      sendJson(response, 200, { ok: true, paymentMethods });
       return true;
     }
 
@@ -416,11 +427,42 @@ async function handleApiRequest(request, response, url) {
         return true;
       }
 
-      // GET/PATCH /api/admin/pricing
+      // GET/PATCH /api/admin/payment-methods · PATCH /api/admin/payment-methods/:code
+      if (segments[2] === 'payment-methods') {
+        if (segments.length === 3) {
+          if (request.method !== 'GET') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET' });
+            return true;
+          }
+          const paymentMethods = await serverCatalog.listPaymentMethods({ activeOnly: false });
+          sendJson(response, 200, { ok: true, paymentMethods });
+          return true;
+        }
+        if (segments.length === 4) {
+          if (request.method !== 'PATCH') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
+            return true;
+          }
+          const body = await readJsonBody(request);
+          const paymentMethod = await serverCatalog.updatePaymentMethod(segments[3], body);
+          sendJson(response, 200, { ok: true, paymentMethod });
+          return true;
+        }
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown payment method route.' });
+        return true;
+      }
+
+      // GET/POST/PATCH /api/admin/pricing  ·  PATCH/DELETE /api/admin/pricing/:id
       if (segments.length === 3 && segments[2] === 'pricing') {
         if (request.method === 'GET') {
           const options = await serverCatalog.listPricing();
           sendJson(response, 200, { ok: true, options });
+          return true;
+        }
+        if (request.method === 'POST') {
+          const body = await readJsonBody(request);
+          const option = await serverCatalog.createPricingOption(body);
+          sendJson(response, 201, { ok: true, option });
           return true;
         }
         if (request.method === 'PATCH') {
@@ -429,7 +471,56 @@ async function handleApiRequest(request, response, url) {
           sendJson(response, 200, { ok: true, options });
           return true;
         }
-        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, PATCH' });
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST, PATCH' });
+        return true;
+      }
+
+      if (segments.length === 4 && segments[2] === 'pricing') {
+        if (request.method === 'PATCH') {
+          const body = await readJsonBody(request);
+          const option = await serverCatalog.updatePricingOption(segments[3], body);
+          sendJson(response, 200, { ok: true, option });
+          return true;
+        }
+        if (request.method === 'DELETE') {
+          const result = await serverCatalog.deletePricingOption(segments[3]);
+          sendJson(response, 200, { ok: true, ...result });
+          return true;
+        }
+        sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH, DELETE' });
+        return true;
+      }
+
+      // GET/POST /api/admin/option-categories  ·  PATCH /api/admin/option-categories/:id
+      if (segments[2] === 'option-categories') {
+        if (segments.length === 3) {
+          if (request.method === 'GET') {
+            const categories = await serverCatalog.listOptionCategories();
+            sendJson(response, 200, { ok: true, categories });
+            return true;
+          }
+          if (request.method === 'POST') {
+            const body = await readJsonBody(request);
+            const category = await serverCatalog.createOptionCategory(body);
+            sendJson(response, 201, { ok: true, category });
+            return true;
+          }
+          sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'GET, POST' });
+          return true;
+        }
+
+        if (segments.length === 4) {
+          if (request.method !== 'PATCH') {
+            sendJson(response, 405, { error: 'method_not_allowed' }, { Allow: 'PATCH' });
+            return true;
+          }
+          const body = await readJsonBody(request);
+          const category = await serverCatalog.updateOptionCategory(segments[3], body);
+          sendJson(response, 200, { ok: true, category });
+          return true;
+        }
+
+        sendJson(response, 404, { error: 'not_found', message: 'Unknown option category route.' });
         return true;
       }
 

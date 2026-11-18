@@ -45,9 +45,9 @@ const pricing = [
   { id: 5, category: 'clasp', option_key: 'black', label: 'Black clasp', price: 5000, is_active: 1, sort_order: 1 },
 ];
 
-const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at';
-const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at';
-const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at';
+const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
+const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_COLUMNS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 function withTimestamps(row) {
@@ -119,6 +119,8 @@ async function execute(sql, params = []) {
   }
 
   if (/FROM catalog_bundles/i.test(query)) return [[]];
+
+  if (/FROM option_categories/i.test(query)) return [[]];
 
   throw new Error(`Unexpected catalog test SQL: ${query}`);
 }

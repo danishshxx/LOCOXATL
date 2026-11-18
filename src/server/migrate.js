@@ -441,6 +441,116 @@ async function runAdditiveMigrations() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 10. Dynamic option categories (migration 010). pricing_options.category already holds a
+    //     free-form slug, so these rows are all the studio and the order validation need.
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS option_categories (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        slug VARCHAR(32) NOT NULL,
+        name VARCHAR(120) NOT NULL,
+        selection_mode VARCHAR(16) NOT NULL DEFAULT 'multiple',
+        is_required TINYINT(1) NOT NULL DEFAULT 0,
+        counts_toward_bundle_free TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_option_category_slug (slug),
+        KEY idx_option_categories_active_order (is_active, sort_order),
+        CONSTRAINT chk_option_category_selection_mode CHECK (selection_mode IN ('single', 'multiple'))
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Seed only when empty, so an operator's own categories are never touched.
+    const [optionCategoryCount] = await connection.query('SELECT COUNT(*) AS total FROM option_categories');
+    if (Number(optionCategoryCount[0] && optionCategoryCount[0].total) === 0) {
+      await connection.query(
+        `INSERT IGNORE INTO option_categories
+          (slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active)
+         VALUES
+          ('addon', 'Universal Add-ons', 'multiple', 0, 1, 0, 1),
+          ('clasp', 'Clasps', 'single', 1, 0, 1, 1),
+          ('silicone-strap', 'Silicone Straps', 'single', 0, 0, 2, 1)`,
+      );
+    }
+    // The strap category ships with two choices so it is usable the moment it appears.
+    await connection.query(
+      `INSERT IGNORE INTO pricing_options (category, option_key, label, price, is_active, sort_order)
+       VALUES
+        ('silicone-strap', 'strap-white', 'White silicone strap', 8000, 1, 10),
+        ('silicone-strap', 'strap-black', 'Black silicone strap', 8000, 1, 11)`,
+    );
+
+    // 11. Yellow / Pink versions (migration 011). One guarded column at a time.
+    const productVersionColumns = await tableColumns(connection, 'catalog_products');
+    if (!productVersionColumns.has('version_key')) {
+      await connection.query(
+        "ALTER TABLE catalog_products ADD COLUMN version_key VARCHAR(32) NOT NULL DEFAULT 'yellow' AFTER template_key",
+      );
+    }
+    const memberVersionColumns = await tableColumns(connection, 'artist_members');
+    if (!memberVersionColumns.has('version_key')) {
+      await connection.query(
+        "ALTER TABLE artist_members ADD COLUMN version_key VARCHAR(32) NOT NULL DEFAULT 'yellow' AFTER design_image_url",
+      );
+    }
+    const groupVersionColumns = await tableColumns(connection, 'catalog_groups');
+    if (!groupVersionColumns.has('versions_json')) {
+      await connection.query('ALTER TABLE catalog_groups ADD COLUMN versions_json JSON NULL AFTER hero_focal');
+    }
+
+    // 12. Payment methods, group display modes and per-order fulfillment (migration 012).
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS payment_methods (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        code VARCHAR(32) NOT NULL,
+        label VARCHAR(80) NOT NULL,
+        instructions TEXT NULL,
+        image_url VARCHAR(512) NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_payment_method_code (code),
+        KEY idx_payment_methods_active_order (is_active, sort_order)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Seed only while the table is empty, so an operator's labels are never overwritten.
+    const [paymentMethodCount] = await connection.query('SELECT COUNT(*) AS total FROM payment_methods');
+    if (Number(paymentMethodCount[0] && paymentMethodCount[0].total) === 0) {
+      await connection.query(
+        `INSERT IGNORE INTO payment_methods (code, label, instructions, sort_order, is_active)
+         VALUES
+          ('qris', 'QRIS', 'Scan the QRIS code below with any mobile banking or e-wallet app, then send the payment proof to our WhatsApp CS.', 0, 1),
+          ('cash', 'Cash', 'Pay in cash when we meet on campus or at the COD point. Our CS will confirm the time and place on WhatsApp.', 1, 1),
+          ('transfer', 'Bank Transfer', 'Transfer to the account our CS confirms on WhatsApp, then send the transfer receipt as payment proof.', 2, 1)`,
+      );
+    }
+
+    const groupModeColumns = await tableColumns(connection, 'catalog_groups');
+    if (!groupModeColumns.has('has_versions')) {
+      await connection.query(
+        'ALTER TABLE catalog_groups ADD COLUMN has_versions TINYINT(1) NOT NULL DEFAULT 1 AFTER versions_json',
+      );
+    }
+    if (!groupModeColumns.has('is_custom_design')) {
+      await connection.query(
+        'ALTER TABLE catalog_groups ADD COLUMN is_custom_design TINYINT(1) NOT NULL DEFAULT 0 AFTER has_versions',
+      );
+    }
+
+    const orderFulfillmentColumns = await tableColumns(connection, 'orders');
+    if (!orderFulfillmentColumns.has('fulfillment_method')) {
+      await connection.query(
+        "ALTER TABLE orders ADD COLUMN fulfillment_method VARCHAR(32) NOT NULL DEFAULT 'campus_delivery' AFTER admin_notes",
+      );
+    }
+    if (!orderFulfillmentColumns.has('payment_method')) {
+      await connection.query('ALTER TABLE orders ADD COLUMN payment_method VARCHAR(32) NULL AFTER fulfillment_method');
+    }
+
     const catalogSeed = await seedCatalogGroups();
     const pricingSeed = await seedPricingOptions();
     const productSeed = await seedCatalogProducts();

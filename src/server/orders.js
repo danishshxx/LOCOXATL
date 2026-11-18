@@ -58,8 +58,8 @@ async function createOrder(payload) {
       const created = await withTransaction(async (connection) => {
         const [orderResult] = await connection.execute(
           `INSERT INTO orders
-            (order_number, customer_name, customer_email, customer_phone, customer_address, customer_note, total_amount, order_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            (order_number, customer_name, customer_email, customer_phone, customer_address, customer_note, fulfillment_method, payment_method, total_amount, order_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderNumber,
             order.customer.name,
@@ -67,6 +67,8 @@ async function createOrder(payload) {
             order.customer.phone,
             order.customer.address,
             order.customer.note || null,
+            order.fulfillmentMethod,
+            order.paymentMethod,
             order.quote.total,
             'waiting_for_payment',
           ],
@@ -104,6 +106,8 @@ async function createOrder(payload) {
         product: order.product ? { slug: order.product.slug, name: order.product.name } : null,
         member: order.member || null,
         artist: order.artist,
+        fulfillmentMethod: order.fulfillmentMethod,
+        paymentMethod: order.paymentMethod,
         configuration: order.configuration,
       };
     } catch (error) {
@@ -212,8 +216,8 @@ async function listOrdersAdmin({ page = 1, limit = 20, status = '', search = '' 
 
   const [rows] = await pool.execute(
     `SELECT o.id, o.order_number, o.customer_name, o.customer_email, o.customer_phone,
-            o.customer_address, o.customer_note, o.total_amount, o.order_status,
-            o.created_at, o.updated_at
+            o.customer_address, o.customer_note, o.fulfillment_method, o.payment_method,
+            o.total_amount, o.order_status, o.created_at, o.updated_at
      FROM orders o
      ${whereClause}
      ORDER BY o.id DESC
@@ -263,6 +267,8 @@ async function listOrdersAdmin({ page = 1, limit = 20, status = '', search = '' 
     orderNumber: r.order_number,
     status: r.order_status,
     total: Number(r.total_amount),
+    fulfillmentMethod: r.fulfillment_method || 'campus_delivery',
+    paymentMethod: r.payment_method || null,
     customer: {
       name: r.customer_name,
       email: r.customer_email || '',
@@ -306,10 +312,13 @@ async function getOrderDetailAdmin(orderNumber) {
   let trackingNumber = '';
   let shippedAt = null;
   let completedAt = null;
+  let fulfillmentMethod = 'campus_delivery';
+  let paymentMethod = null;
 
   try {
     const [extra] = await pool.execute(
-      `SELECT admin_notes, payment_verified_at, shipping_courier, tracking_number, shipped_at, completed_at
+      `SELECT admin_notes, payment_verified_at, shipping_courier, tracking_number, shipped_at, completed_at,
+              fulfillment_method, payment_method
        FROM orders WHERE id = ? LIMIT 1`,
       [order.id],
     );
@@ -320,6 +329,8 @@ async function getOrderDetailAdmin(orderNumber) {
       trackingNumber = extra[0].tracking_number || '';
       shippedAt = extra[0].shipped_at || null;
       completedAt = extra[0].completed_at || null;
+      fulfillmentMethod = extra[0].fulfillment_method || 'campus_delivery';
+      paymentMethod = extra[0].payment_method || null;
     }
   } catch {
     // Columns might not exist yet if unmigrated
@@ -384,6 +395,8 @@ async function getOrderDetailAdmin(orderNumber) {
     orderNumber: order.order_number,
     status: order.order_status,
     total: Number(order.total_amount),
+    fulfillmentMethod,
+    paymentMethod,
     customer: {
       name: order.customer_name,
       email: order.customer_email || '',
