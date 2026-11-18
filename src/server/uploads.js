@@ -126,52 +126,56 @@ function writeLocalImage(slug, { mime, buffer }) {
  * Signs and sends the upload to Cloudinary's REST API. The signature is a SHA-1 over the sorted
  * parameters with the API secret appended; the secret itself never leaves this process.
  */
-async function uploadToCloudinary(slug, { mime, buffer }) {
-  const settings = cloudinarySettings();
-  if (!settings) {
-    throw new UploadError('storage_not_configured', 'Image storage is not configured on the server.', 503);
-  }
 
-  const timestamp = Math.floor(Date.now() / 1000);
-  const publicId = `${safeSlug(slug)}-${crypto.randomBytes(6).toString('hex')}`;
-  const signed = { folder: settings.folder, public_id: publicId, timestamp };
-  const toSign = Object.keys(signed)
-    .sort()
-    .map((key) => `${key}=${signed[key]}`)
-    .join('&');
-  const signature = crypto
-    .createHash('sha1')
-    .update(`${toSign}${settings.apiSecret}`)
-    .digest('hex');
+let response;
 
-  const form = new FormData();
-  form.append('file', new Blob([buffer], { type: mime }), `${publicId}.${EXTENSIONS[mime]}`);
-  form.append('api_key', settings.apiKey);
-  form.append('timestamp', String(timestamp));
-  form.append('folder', settings.folder);
-  form.append('public_id', publicId);
-  form.append('signature', signature);
+try {
+  response = await fetch(endpoint, {
+    method: 'POST',
+    body: form,
+  });
+} catch (error) {
+  console.error('[Cloudinary] Network failure:', {
+    name: error?.name,
+    code: error?.cause?.code || error?.code || null,
+    message: String(error?.message || 'Unknown error')
+      .replace(settings.apiSecret, '[REDACTED]')
+      .slice(0, 240),
+  });
 
-  const endpoint = `${CLOUDINARY_UPLOAD_ENDPOINT}/${settings.cloudName}/image/upload`;
-
-  let response;
-  try {
-    response = await fetch(endpoint, { method: 'POST', body: form });
-  } catch {
-    throw new UploadError('storage_unavailable', 'The image storage could not be reached. Try again.', 502);
-  }
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.secure_url) {
-    // The upstream message is deliberately not echoed to the browser: it can contain signed
-    // parameters, and the dashboard only needs to know the upload failed.
-    throw new UploadError('storage_rejected', 'The image storage rejected the upload. Try again.', 502);
-  }
-  if (!isManagedUrl(payload.secure_url)) {
-    throw new UploadError('storage_rejected', 'The image storage returned an unexpected URL.', 502);
-  }
-  return payload.secure_url;
+  throw new UploadError(
+    'storage_unavailable',
+    'The image storage could not be reached. Try again.',
+    502,
+  );
 }
+
+const payload = await response.json().catch(() => ({}));
+
+if (!response.ok || !payload.secure_url) {
+  const upstreamMessage = String(
+    payload?.error?.message || 'Missing secure_url'
+  )
+    .replaceAll(settings.apiSecret, '[REDACTED]')
+    .replaceAll(settings.apiKey, '[REDACTED]')
+    .replace(/signature[=:]\s*[a-f0-9]+/gi, 'signature=[REDACTED]')
+    .slice(0, 240);
+
+  console.error('[Cloudinary] Upload rejected:', {
+    status: response.status,
+    code: payload?.error?.http_code || null,
+    message: upstreamMessage,
+    cloudName: settings.cloudName,
+    folder: settings.folder,
+  });
+
+  throw new UploadError(
+    'storage_rejected',
+    'The image storage rejected the upload. Try again.',
+    502,
+  );
+}
+
 
 /**
  * Persists an image and returns its public URL. Cloudinary is used when configured; otherwise the
