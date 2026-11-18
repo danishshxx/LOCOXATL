@@ -22,7 +22,7 @@
   const optionCategories = [
     { slug: 'addon', name: 'Universal Add-ons', selectionMode: 'multiple', isRequired: false, countsTowardBundleFree: true, sortOrder: 0, isActive: true },
     { slug: 'clasp', name: 'Clasps', selectionMode: 'single', isRequired: true, countsTowardBundleFree: false, sortOrder: 1, isActive: true },
-    { slug: 'silicone-strap', name: 'Silicone Straps', selectionMode: 'single', isRequired: false, countsTowardBundleFree: false, sortOrder: 2, isActive: true },
+    { slug: 'silicone-strap', name: 'Silicone Straps', selectionMode: 'single', isRequired: false, countsTowardBundleFree: false, bundleIncluded: true, sortOrder: 2, isActive: true },
   ];
 
   const clasps = [

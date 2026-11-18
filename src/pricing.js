@@ -170,7 +170,15 @@
         allowedAddonKeys: input.bundle.allowedAddonKeys,
       })
       : [];
-    for (const line of lines) line.free = freeIds.includes(line.key);
+    // A category flagged as included comes with every bundle: free, and outside the quota.
+    const includedCategories = new Set(
+      categories
+        .filter((category) => category && category.bundleIncluded)
+        .map((category) => String(category.slug || '').trim().toLowerCase()),
+    );
+    for (const line of lines) {
+      line.free = freeIds.includes(line.key) || (Boolean(input.bundle) && includedCategories.has(line.category));
+    }
 
     const personalizationKey = String(
       input.personalization && input.personalization.active ? input.personalization.key || '' : '',

@@ -14,7 +14,7 @@ const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, bas
 const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 const BUNDLE_FIELDS = 'id, group_id, slug, name, description, bundle_price, free_addon_quota, allowed_addon_keys, image_url, is_active, sort_order, created_at, updated_at';
-const CATEGORY_FIELDS = 'id, slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active, created_at, updated_at';
+const CATEGORY_FIELDS = 'id, slug, name, selection_mode, is_required, counts_toward_bundle_free, bundle_included, sort_order, is_active, created_at, updated_at';
 
 // The two product versions the storefront offers as cards before the member list.
 const VERSION_KEYS = ['yellow', 'pink'];
@@ -254,6 +254,7 @@ function mapOptionCategory(row) {
     selectionMode: row.selection_mode === 'single' ? 'single' : 'multiple',
     isRequired: Boolean(row.is_required),
     countsTowardBundleFree: Boolean(row.counts_toward_bundle_free),
+    bundleIncluded: Boolean(row.bundle_included),
     sortOrder: Number(row.sort_order) || 0,
     isActive: Boolean(row.is_active),
     createdAt: row.created_at || null,
@@ -270,6 +271,7 @@ function staticOptionCategories() {
     selectionMode: category.selectionMode === 'single' ? 'single' : 'multiple',
     isRequired: Boolean(category.isRequired),
     countsTowardBundleFree: category.countsTowardBundleFree !== false,
+    bundleIncluded: category.bundleIncluded === true,
     sortOrder: Number.isInteger(category.sortOrder) ? category.sortOrder : index,
     isActive: true,
     createdAt: null,
@@ -1747,7 +1749,7 @@ function normalizeOptionCategoryInput(input = {}, { partial = false } = {}) {
   if (!partial || values.selectionMode !== undefined) {
     result.selectionMode = normalizeSelectionMode(values.selectionMode);
   }
-  for (const field of ['isRequired', 'countsTowardBundleFree', 'isActive']) {
+  for (const field of ['isRequired', 'countsTowardBundleFree', 'bundleIncluded', 'isActive']) {
     if (values[field] === undefined) continue;
     if (typeof values[field] !== 'boolean') {
       throw new CatalogError('invalid_flag', `${field} must be a boolean.`);
@@ -1857,14 +1859,15 @@ async function createOptionCategory(input = {}) {
   try {
     const [result] = await pool.execute(
       `INSERT INTO option_categories
-        (slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (slug, name, selection_mode, is_required, counts_toward_bundle_free, bundle_included, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         values.slug,
         values.name,
         values.selectionMode || 'multiple',
         values.isRequired === true ? 1 : 0,
         values.countsTowardBundleFree === false ? 0 : 1,
+        values.bundleIncluded === true ? 1 : 0,
         sortOrder,
         values.isActive === false ? 0 : 1,
       ],
@@ -1895,6 +1898,10 @@ async function updateOptionCategory(id, input = {}) {
   if (values.countsTowardBundleFree !== undefined) {
     assignments.push('counts_toward_bundle_free = ?');
     params.push(values.countsTowardBundleFree ? 1 : 0);
+  }
+  if (values.bundleIncluded !== undefined) {
+    assignments.push('bundle_included = ?');
+    params.push(values.bundleIncluded ? 1 : 0);
   }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }

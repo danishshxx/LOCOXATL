@@ -215,6 +215,7 @@ CREATE TABLE IF NOT EXISTS option_categories (
   selection_mode VARCHAR(16) NOT NULL DEFAULT 'multiple',
   is_required TINYINT(1) NOT NULL DEFAULT 0,
   counts_toward_bundle_free TINYINT(1) NOT NULL DEFAULT 1,
+  bundle_included TINYINT(1) NOT NULL DEFAULT 0,
   sort_order INT NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

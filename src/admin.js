@@ -1753,9 +1753,19 @@
     const container = $('#bundleAddonChoices');
     if (!container) return;
 
+    // Every category flagged as included with a bundle (the silicone straps) is listed here too,
+    // so the bundle editor shows the full set of options a buyer can pick with it.
+    const includedCategories = new Set(
+      optionCategories
+        .filter((category) => category && category.bundleIncluded)
+        .map((category) => category.slug),
+    );
     const configured = (pricingOptions.length ? pricingOptions : [])
-      .filter((option) => option.category === 'addon' && option.key !== 'initial')
-      .map((option) => ({ key: option.key, label: option.label }));
+      .filter((option) => (option.category === 'addon' || includedCategories.has(option.category)) && option.key !== 'initial')
+      .map((option) => ({
+        key: option.key,
+        label: includedCategories.has(option.category) ? `${option.label} (free with every bundle)` : option.label,
+      }));
     const fallback = window.LocoxatlOptions && Array.isArray(window.LocoxatlOptions.addons)
       ? window.LocoxatlOptions.addons
         .filter((addon) => addon.id !== 'initial')
@@ -1775,6 +1785,7 @@
 
   async function openBundleModal(bundleId) {
     if (!pricingOptions.length) await loadPricing();
+    if (!optionCategories.length) await loadOptionCategories();
     if (!artistGroups.length) await ensureArtistGroupsLoaded().catch(() => {});
 
     const bundle = bundleId ? bundles.find((row) => row.id === bundleId) : null;

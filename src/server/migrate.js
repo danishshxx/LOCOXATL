@@ -451,6 +451,7 @@ async function runAdditiveMigrations() {
         selection_mode VARCHAR(16) NOT NULL DEFAULT 'multiple',
         is_required TINYINT(1) NOT NULL DEFAULT 0,
         counts_toward_bundle_free TINYINT(1) NOT NULL DEFAULT 1,
+        bundle_included TINYINT(1) NOT NULL DEFAULT 0,
         sort_order INT NOT NULL DEFAULT 0,
         is_active TINYINT(1) NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -464,14 +465,14 @@ async function runAdditiveMigrations() {
 
     // Seed only when empty, so an operator's own categories are never touched.
     const [optionCategoryCount] = await connection.query('SELECT COUNT(*) AS total FROM option_categories');
-    if (Number(optionCategoryCount[0] && optionCategoryCount[0].total) === 0) {
+    if (!optionCategoryCount[0] || Number(optionCategoryCount[0].total) === 0) {
       await connection.query(
         `INSERT IGNORE INTO option_categories
-          (slug, name, selection_mode, is_required, counts_toward_bundle_free, sort_order, is_active)
+          (slug, name, selection_mode, is_required, counts_toward_bundle_free, bundle_included, sort_order, is_active)
          VALUES
-          ('addon', 'Universal Add-ons', 'multiple', 0, 1, 0, 1),
-          ('clasp', 'Clasps', 'single', 1, 0, 1, 1),
-          ('silicone-strap', 'Silicone Straps', 'single', 0, 0, 2, 1)`,
+          ('addon', 'Universal Add-ons', 'multiple', 0, 1, 0, 0, 1),
+          ('clasp', 'Clasps', 'single', 1, 0, 0, 1, 1),
+          ('silicone-strap', 'Silicone Straps', 'single', 0, 0, 1, 2, 1)`,
       );
     }
     // The strap category ships with two choices so it is usable the moment it appears.
@@ -549,6 +550,16 @@ async function runAdditiveMigrations() {
     }
     if (!orderFulfillmentColumns.has('payment_method')) {
       await connection.query('ALTER TABLE orders ADD COLUMN payment_method VARCHAR(32) NULL AFTER fulfillment_method');
+    }
+
+    // 13. Options included with every bundle (migration 013). The strap category adopts the rule
+    //     only while the column is created, so an admin decision is never overwritten.
+    const optionCategoryModeColumns = await tableColumns(connection, 'option_categories');
+    if (!optionCategoryModeColumns.has('bundle_included')) {
+      await connection.query(
+        'ALTER TABLE option_categories ADD COLUMN bundle_included TINYINT(1) NOT NULL DEFAULT 0 AFTER counts_toward_bundle_free',
+      );
+      await connection.query("UPDATE option_categories SET bundle_included = 1 WHERE slug = 'silicone-strap'");
     }
 
     const catalogSeed = await seedCatalogGroups();

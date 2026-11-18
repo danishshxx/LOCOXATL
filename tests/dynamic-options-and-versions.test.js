@@ -34,7 +34,7 @@ const catalog = {
   optionCategories: [
     { slug: 'addon', name: 'Universal Add-ons', selectionMode: 'multiple', isRequired: false, countsTowardBundleFree: true, sortOrder: 0, isActive: true },
     { slug: 'clasp', name: 'Clasps', selectionMode: 'single', isRequired: true, countsTowardBundleFree: false, sortOrder: 1, isActive: true },
-    { slug: 'silicone-strap', name: 'Silicone Straps', selectionMode: 'single', isRequired: false, countsTowardBundleFree: false, sortOrder: 2, isActive: true },
+    { slug: 'silicone-strap', name: 'Silicone Straps', selectionMode: 'single', isRequired: false, countsTowardBundleFree: false, bundleIncluded: true, sortOrder: 2, isActive: true },
   ],
   options: {
     base: { key: 'keychain', label: 'Keychain base', price: 45000, isActive: true },
@@ -128,14 +128,47 @@ test('two choices in a single-mode category are rejected', () => {
   );
 });
 
-test('a strap is not covered by the bundle quota', () => {
+test('a bundle includes the silicone strap without spending the add-on quota', () => {
   const result = validateOrderPayload(orderPayload({ bundle: { id: 7 } }), { catalog });
 
-  // bundle 60000 + free pearl + silver 7000 + strap 8000
-  assert.equal(result.quote.total, 75000);
-  assert.deepEqual(result.bundle.freeAddonIds, ['pearl']);
+  // bundle 60000 + free pearl + silver 7000 + free strap
+  assert.equal(result.quote.total, 67000);
+  assert.deepEqual(result.bundle.freeAddonIds, ['pearl'], 'the strap never consumes the add-on quota');
   const strapLine = result.quote.lines.find((line) => line.key === 'strap-black');
-  assert.equal(strapLine.free, false);
+  assert.equal(strapLine.free, true, 'every bundle comes with a free strap');
+});
+
+test('the included strap stays free when the add-on quota is already spent', () => {
+  const quote = pricing.quoteSelections({
+    bundle: { price: 60000, freeAddonQuota: 1, allowedAddonKeys: ['pearl', 'star'] },
+    categories: catalog.optionCategories,
+    items: catalog.options.items,
+    selections: {
+      addon: ['pearl', 'star'],
+      clasp: ['silver'],
+      'silicone-strap': ['strap-white'],
+    },
+  });
+
+  assert.deepEqual(quote.freeAddonIds, ['pearl']);
+  const strap = quote.lines.find((line) => line.key === 'strap-white');
+  const star = quote.lines.find((line) => line.key === 'star');
+  assert.equal(strap.free, true);
+  assert.equal(star.free, false);
+  // bundle 60000 + silver 7000 + star 12000
+  assert.equal(quote.total, 79000);
+});
+
+test('a strap is charged normally without a bundle', () => {
+  const quote = pricing.quoteSelections({
+    basePrice: 45000,
+    categories: catalog.optionCategories,
+    items: catalog.options.items,
+    selections: { addon: [], clasp: ['silver'], 'silicone-strap': ['strap-black'] },
+  });
+
+  assert.equal(quote.lines.find((line) => line.key === 'strap-black').free, false);
+  assert.equal(quote.total, 45000 + 7000 + 8000);
 });
 
 test('the version must match the design', () => {
@@ -239,6 +272,19 @@ require.cache[catalogPath] = {
 
 const { runAdditiveMigrations } = require('../src/server/migrate');
 
+test('migration 013 adds the bundle-included flag behind a guard', () => {
+  const sql = fs.readFileSync(
+    path.join(__dirname, '..', 'database', 'migrations', '013_bundle_included_options.sql'),
+    'utf8',
+  );
+
+  const guards = sql.match(/SELECT COUNT\(\*\) FROM INFORMATION_SCHEMA\.COLUMNS/gi) || [];
+  assert.equal(guards.length, 1);
+  assert.match(sql, /ADD COLUMN bundle_included TINYINT\(1\) NOT NULL DEFAULT 0/i);
+  assert.match(sql, /WHERE slug = ''?silicone-strap''?/i);
+  assert.doesNotMatch(sql, /DROP TABLE|TRUNCATE|DROP COLUMN/i);
+});
+
 test('the JavaScript migration creates the category table and seeds it once', async () => {
   statements.length = 0;
   const first = await runAdditiveMigrations();
@@ -247,6 +293,10 @@ test('the JavaScript migration creates the category table and seeds it once', as
   assert.ok(
     statements.some((query) => /CREATE TABLE IF NOT EXISTS option_categories/i.test(query)),
     'the migration must create option_categories',
+  );
+  assert.ok(
+    statements.some((query) => /ADD COLUMN bundle_included/i.test(query)),
+    'option_categories.bundle_included must be added',
   );
   assert.ok(
     statements.some((query) => /INSERT IGNORE INTO option_categories/i.test(query)),

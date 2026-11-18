@@ -411,6 +411,17 @@
       });
     }
 
+    /** Single-choice rows show the bundle inclusion instead of a price. */
+    function markFreeChoices(lines) {
+      const free = new Set((lines || []).filter((line) => line.free).map((line) => line.key));
+      $$('.clasp-choice[data-option-key]').forEach((button) => {
+        const item = itemByKey(button.dataset.optionKey || '');
+        const label = button.querySelector('small');
+        if (!item || !label) return;
+        label.textContent = free.has(item.key) ? 'Free (Included in Bundle)' : money(item.price);
+      });
+    }
+
     function updateBundleNote(quote) {
       const note = $('#bundleNote');
       const step = $('#bundleStep');
@@ -641,6 +652,7 @@
       });
       $('#builderPrice').textContent = money(quote.total);
       markFreeOptions(quote.lines);
+      markFreeChoices(quote.lines);
       updateBundleNote(quote);
       // The latest quote is the only source for the checkout payload, so a bundle-covered option
       // is recorded at Rp 0 there exactly as it is shown here.

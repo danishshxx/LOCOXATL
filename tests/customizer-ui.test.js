@@ -11,13 +11,13 @@ const studioHtml = read('studio.html');
 const studioScript = read('src/studio.js');
 const styles = read('styles.css');
 
-test('the custom studio keeps the approved SVG preview as a WebGL fallback', () => {
+test('the custom studio previews the product image instead of the old SVG', () => {
   assert.match(studioHtml, /id="studioPreviewFallback"/);
-  assert.match(studioHtml, /id="previewBase"/);
-  assert.match(studioHtml, /id="previewRing"/);
-  assert.match(studioHtml, /id="previewAddon"/);
-  assert.match(studioHtml, /id="previewInitial"/);
+  assert.match(studioHtml, /id="previewProductImage"/);
+  assert.match(studioHtml, /id="previewProductEmpty"/);
   assert.match(studioHtml, /id="customPreview"/);
+  assert.doesNotMatch(studioHtml, /id="previewBase"/, 'the heart SVG fallback is removed');
+  assert.doesNotMatch(studioHtml, /id="previewRing"/, 'the split-ring graphic is removed');
 });
 
 test('the 3D viewer mounts into the existing preview panel without new layout sections', () => {
