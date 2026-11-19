@@ -1,4 +1,4 @@
-@font-face{font-family:Inter;src:url('assets/fonts/Inter-Regular.otf') format('opentype');font-style:normal;font-weight:400;font-display:swap}
+﻿@font-face{font-family:Inter;src:url('assets/fonts/Inter-Regular.otf') format('opentype');font-style:normal;font-weight:400;font-display:swap}
 @font-face{font-family:Inter;src:url('assets/fonts/Inter-Medium.otf') format('opentype');font-style:normal;font-weight:500;font-display:swap}
 @font-face{font-family:Inter;src:url('assets/fonts/Inter-SemiBold.otf') format('opentype');font-style:normal;font-weight:600;font-display:swap}
 @font-face{font-family:Inter;src:url('assets/fonts/Inter-Bold.otf') format('opentype');font-style:normal;font-weight:700;font-display:swap}
@@ -42,7 +42,7 @@ button{color:inherit}
 .hero :focus-visible,.design-section :focus-visible,.closing-cta :focus-visible{outline-color:#fff}
 
 
-/* LOCOXATL brand alignment — supplied team artwork + monochrome system */
+/* LOCOXATL brand alignment â€” supplied team artwork + monochrome system */
 .brand{display:inline-flex;align-items:center;line-height:0;letter-spacing:normal}
 .brand img{display:block;width:clamp(126px,12vw,154px);height:auto;max-height:36px;object-fit:contain}
 .brand-footer img{width:154px;max-height:38px}
@@ -222,10 +222,6 @@ button{color:inherit}
 .empty-state h2{color:#111;font-size:22px;letter-spacing:-.05em}
 .empty-state .button{margin-top:12px}
 .payment-heading{padding-top:10px}
-.qris-placeholder-large{min-height:300px;margin:22px 0;padding:25px;border:1px dashed #cfcfcf;border-radius:17px;background:#fafafa;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px}
-.qris-placeholder-mark{width:112px;height:112px;border:7px solid #111;display:grid;place-items:center;font-size:68px;line-height:1;color:#111;background:repeating-linear-gradient(45deg,#fff,#fff 6px,#eee 6px,#eee 12px)}
-.qris-placeholder-large strong{font-size:10px;letter-spacing:.15em}
-.qris-placeholder-large span{max-width:250px;color:#999;font-size:9px;line-height:1.6}
 .payment-amount{display:flex;justify-content:space-between;align-items:center;gap:15px;border-top:1px solid #eee;padding-top:20px}
 .payment-amount span{font-size:8px;color:#999;font-weight:700;letter-spacing:.13em}
 .payment-amount strong{font-size:23px;letter-spacing:-.06em}
@@ -340,3 +336,83 @@ button{color:inherit}
 .bundle-choice small{display:block;margin-top:3px;color:#999;font-size:8px;font-weight:400}
 .bundle-note{margin:10px 0 0;font-size:8px;line-height:1.6;color:#777}
 .addon-option.is-free .addon-name small{color:#111;font-weight:700}
+
+/* ------------------------------------------------------------------------- *
+ * 2026 storefront polish: cinematic home hero, product-first member cards,
+ * balanced checkout, and a scannable QRIS panel.
+ * ------------------------------------------------------------------------- */
+
+/* CINEMATIC HOME HERO */
+.home-page .hero-cinema{min-height:calc(100svh - 98px);padding:0;display:grid;place-items:center;text-align:center;background:#000;isolation:isolate}
+.hero-cinema>.hero-cinema-poster,.hero-cinema>.hero-video,.hero-cinema>.hero-cinema-scrim{position:absolute;inset:0;width:100%;height:100%}
+.hero-cinema>.hero-cinema-poster{z-index:0;background:#0a0a0a url('assets/video/LOCOXATL_hero_teaser_poster.jpg') center/cover no-repeat}
+.hero-cinema>.hero-video{z-index:1;display:block;object-fit:cover;object-position:center}
+.hero-cinema>.hero-cinema-scrim{z-index:2;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.6) 0%,rgba(0,0,0,.22) 45%,rgba(0,0,0,.78) 100%)}
+.hero-cinema>.hero-cinema-copy{position:relative;z-index:3;width:min(900px,90%);padding:74px 0 86px;display:flex;flex-direction:column;align-items:center}
+.hero-wordmark{display:block;width:min(400px,66vw);height:auto;margin-bottom:26px;filter:drop-shadow(0 10px 30px rgba(0,0,0,.4))}
+.hero-cinema .eyebrow{justify-content:center}
+.hero-cinema h1{margin:20px 0 18px;font-size:clamp(52px,7.6vw,104px);line-height:.9;letter-spacing:-.09em;font-weight:800}
+.hero-cinema h1 span{color:#b9b9b9}
+.hero-cinema .hero-cinema-copy>p{max-width:520px;margin:0 auto;color:#d0d0d0;font-size:14px;line-height:1.7}
+.hero-cinema .hero-actions{margin-top:30px;flex-wrap:wrap}
+.hero-cinema .hero-scroll{z-index:3;color:rgba(255,255,255,.72)}
+.hero-cinema.is-fallback .hero-video{display:none}
+
+/* PRODUCT-FIRST MEMBER CARDS */
+.member-card-product{position:relative;display:grid;place-items:center;aspect-ratio:4/5;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#fcfcfc,#ededee);border:1px solid #ececec;transition:transform .5s var(--spring),border-radius .5s var(--spring),box-shadow .4s ease}
+.member-card:hover .member-card-product,.member-card:focus-within .member-card-product{transform:translateY(-4px);border-radius:26px;box-shadow:0 18px 36px rgba(0,0,0,.07)}
+.keychain-art{display:block;width:74%;max-width:250px;color:#8f8f95}
+.keychain-art svg{display:block;width:100%;height:auto;overflow:visible;filter:drop-shadow(0 16px 18px rgba(0,0,0,.12))}
+.keychain-monogram{font-family:var(--font-sans);font-size:34px;font-weight:800;letter-spacing:-.08em;fill:#c9c9ce}
+
+/* CHECKOUT */
+.checkout-form-card>.checkout-card-heading,.order-summary-card>.checkout-card-heading{letter-spacing:.15em}
+.checkout-fieldset{border:0;padding:0;margin:0;display:grid;gap:16px}
+.checkout-fieldset+.checkout-fieldset{padding-top:22px;border-top:1px solid #eee}
+.checkout-fieldset legend{padding:0;margin-bottom:4px;font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#777}
+.checkout-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.checkout-form-grid .field-wide{grid-column:1/-1}
+.checkout-form-actions{display:grid;gap:12px;margin-top:6px}
+.summary-product{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:18px;align-items:center;margin:20px 0 6px}
+.summary-product-art{height:auto;aspect-ratio:1;margin:0;border-radius:16px;background:#f4f4f5;overflow:hidden}
+.summary-product-image{width:100%;height:100%;max-height:100%;object-fit:contain;padding:8px}
+.summary-product-copy h2{font-size:22px;line-height:1.1}
+.summary-total-list{margin:10px 0 0}
+.summary-total-row dt,.summary-total-row dd{margin:0}
+.summary-total-row dd{text-align:right}
+.summary-total-row.summary-grand-total{border-top:1px solid #ddd;border-bottom:0;margin-bottom:0}
+.summary-grand-total dd{font-size:15px}
+.order-summary-card>.text-link{margin-top:20px}
+
+/* PAYMENT / QRIS */
+.payment-method-panel{display:grid;place-items:center;min-height:270px;margin:24px 0;padding:22px;border:1px solid #e8e8e8;border-radius:18px;background:#fafafa}
+.payment-qr-image{display:block;width:min(320px,100%);height:auto;max-height:420px;object-fit:contain;border-radius:12px;background:#fff;padding:10px}
+.payment-method-fallback{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:320px;text-align:center}
+.payment-method-fallback[hidden]{display:none}
+.payment-method-mark{display:inline-flex;align-items:center;justify-content:center;min-width:74px;height:34px;padding:0 14px;border:1px solid #111;border-radius:999px;background:#fff;color:#111;font-size:9px;font-weight:800;letter-spacing:.14em}
+.payment-method-fallback strong{font-size:12px;letter-spacing:.12em}
+.payment-method-fallback span:last-child{color:#888;font-size:10px;line-height:1.7}
+.qris-card .payment-amount{margin-top:2px}
+.payment-instructions .button+.button{margin-top:0}
+
+@media(max-width:760px){
+  .home-page .hero-cinema{min-height:calc(100svh - 88px)}
+  .hero-cinema>.hero-cinema-copy{width:92%;padding:54px 0 66px}
+  .hero-wordmark{width:min(290px,72vw);margin-bottom:20px}
+  .hero-cinema h1{font-size:clamp(46px,12vw,72px)}
+  .hero-cinema .hero-cinema-copy>p{max-width:340px;font-size:11px}
+  .hero-cinema .hero-actions{gap:18px}
+  .hero-cinema .hero-scroll{display:none}
+  .member-card-product{border-radius:14px}
+  .member-card:hover .member-card-product,.member-card:focus-within .member-card-product{border-radius:18px}
+  .keychain-art{width:80%}
+  .checkout-form-grid{grid-template-columns:1fr}
+  .summary-product{grid-template-columns:110px minmax(0,1fr);gap:14px}
+  .summary-product-copy h2{font-size:19px}
+  .payment-method-panel{min-height:220px;padding:16px}
+  .payment-qr-image{width:min(260px,100%)}
+}
+@media(prefers-reduced-motion:reduce){
+  .hero-video{display:none!important}
+  .member-card-product{transition:none}
+}

@@ -19,7 +19,7 @@
   if (footerTarget) {
     footerTarget.innerHTML = `
       <footer class="site-footer">
-        <a class="brand brand-footer" href="index.html" aria-label="LOCOXATL homepage"><img src="assets/brand/locoxatl-wordmark-black.png" alt="LOCOXATL" /></a>
+        <a class="brand brand-footer" href="index.html" aria-label="LOCOXATL homepage"><img src="assets/brand/locoxatl-wordmark-black.png" alt="LOCOXATL" loading="lazy" decoding="async" /></a>
         <p>Personal objects, made by you.</p>
         <nav class="footer-links" aria-label="Footer navigation"><a href="index.html#our-story">Our story</a><a href="shop.html">Collections</a><a href="shop.html">Buy Now</a></nav>
         <nav class="footer-collections" id="footerCollections" aria-label="Shop by collection" hidden></nav>
@@ -87,6 +87,30 @@
       status.hidden = false;
     }
   });
+
+  // Hero video: the poster is always painted underneath, so a blocked or failed video leaves a
+  // clean brand image instead of a black box. Reduced motion keeps the poster only.
+  const heroVideo = document.getElementById('heroVideo');
+  if (heroVideo) {
+    const cinema = heroVideo.closest ? heroVideo.closest('.hero-cinema') : null;
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      heroVideo.removeAttribute('autoplay');
+      heroVideo.pause();
+    } else if (typeof heroVideo.play === 'function') {
+      const playback = heroVideo.play();
+      if (playback && typeof playback.catch === 'function') playback.catch(() => { /* autoplay policy */ });
+    }
+    heroVideo.addEventListener('error', () => {
+      if (cinema) cinema.classList.add('is-fallback');
+    });
+    const source = heroVideo.querySelector('source');
+    if (source) {
+      source.addEventListener('error', () => {
+        if (cinema) cinema.classList.add('is-fallback');
+      });
+    }
+  }
 
   const menuButton = document.getElementById('mobileMenuButton');
   const mobileNav = document.getElementById('mobileNav');

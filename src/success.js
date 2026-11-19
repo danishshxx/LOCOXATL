@@ -15,24 +15,26 @@
   const whatsappLink = $('successWhatsApp');
   const copyButton = $('copyOrderMessage');
   const actionStatus = $('successActionStatus');
-  whatsappLink.addEventListener('click', (event) => {
-    if (whatsappLink.getAttribute('aria-disabled') === 'true') event.preventDefault();
-  });
+
+  // Always start from an absolute wa.me URL, so the button can never navigate back into the
+  // storefront when the configuration request is slow or unavailable.
+  whatsappLink.href = whatsapp.buildChatUrl('', message);
+  whatsappLink.removeAttribute('aria-disabled');
+  whatsappLink.removeAttribute('tabindex');
+
   const publicConfig = window.locoxatlPublicConfig || fetch('/api/public-config').then((response) => {
     if (!response.ok) throw new Error(`Public configuration request failed (${response.status}).`);
     return response.json();
   });
 
   publicConfig.then(({ whatsappNumber }) => {
-    if (!whatsappNumber || !/^[1-9]\d{7,14}$/.test(whatsappNumber)) {
-      actionStatus.textContent = 'WhatsApp is unavailable. You can copy the message and contact us manually.';
+    if (whatsappNumber) {
+      whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
       return;
     }
-    whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
-    whatsappLink.removeAttribute('aria-disabled');
-    whatsappLink.removeAttribute('tabindex');
+    actionStatus.textContent = 'WhatsApp is not configured yet. The button will ask you to choose a chat.';
   }).catch(() => {
-    actionStatus.textContent = 'WhatsApp could not be configured. You can still copy the message and contact us manually.';
+    actionStatus.textContent = 'WhatsApp could not be configured. The button will ask you to choose a chat.';
   });
 
   copyButton.addEventListener('click', async () => {

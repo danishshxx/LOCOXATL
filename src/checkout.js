@@ -8,6 +8,7 @@
   const form = $('#checkoutForm');
   const summary = $('#checkoutOrderSummary');
   const submitButton = form ? form.querySelector('button[type="submit"]') : null;
+  const whatsapp = window.LocoxatlWhatsApp || null;
 
   if (!form || !summary) return;
 
@@ -72,7 +73,16 @@
   };
   const fulfillmentMethod = order.fulfillmentMethod || 'campus_delivery';
   const fulfillmentEl = $('#summaryFulfillment');
-  if (fulfillmentEl) fulfillmentEl.textContent = FULFILLMENT_LABELS[fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery;
+  if (fulfillmentEl) {
+    fulfillmentEl.textContent = fulfillmentMethod === 'cod_telkom'
+      ? 'COD / meet-up — Telkom University Jakarta'
+      : (FULFILLMENT_LABELS[fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery);
+  }
+  // COD is paid in person, so the button confirms the saved order on WhatsApp instead of
+  // continuing to the QRIS page.
+  if (fulfillmentMethod === 'cod_telkom' && submitButton) {
+    submitButton.innerHTML = 'Confirm COD via WhatsApp <span aria-hidden="true">↗</span>';
+  }
 
   const fieldset = $('#paymentMethodFieldset');
   const choices = $('#paymentMethodChoices');
@@ -96,6 +106,24 @@
       if (summaryPayment) summaryPayment.textContent = 'Shopee';
       return;
     }
+
+    // COD is a different journey: no QRIS, no payment proof. The existing Cash method records
+    // how the courier is paid, and the admin sees the COD fulfillment in the dashboard.
+    if (fulfillmentMethod === 'cod_telkom') {
+      if (fieldset) fieldset.hidden = true;
+      // Prefer Cash (the accurate COD method). If the admin disabled it, never fall back to
+      // QRIS for a COD order; any other active method is a better fit.
+      const codMethod = paymentMethods.find((method) => method.code === 'cash')
+        || paymentMethods.find((method) => method.code !== 'qris')
+        || paymentMethods[0]
+        || null;
+      selectedPayment = codMethod ? codMethod.code : '';
+      order.paymentMethod = selectedPayment || undefined;
+      order.payment = codMethod ? { code: codMethod.code, label: 'COD', instructions: '', imageUrl: null } : null;
+      if (summaryPayment) summaryPayment.textContent = codMethod ? 'COD — pay in cash at meet-up' : 'COD';
+      return;
+    }
+
     if (!paymentMethods.length) {
       if (fieldset) fieldset.hidden = false;
       choices.innerHTML = '<p class="demo-note">No payment method is available right now. Message our WhatsApp CS and we will help.</p>';
@@ -221,6 +249,51 @@
     } catch { /* storage blocked: the form itself still holds the values */ }
   }
 
+  /**
+   * COD handoff. The order already exists in MySQL by the time this runs, so the buyer only
+   * needs to open WhatsApp with the complete order. No payment page, no QRIS, no paid status.
+   */
+  async function redirectToCodWhatsApp() {
+    if (!whatsapp) {
+      setStatus(`Order ${order.orderNumber} is saved. Message our WhatsApp admin to confirm COD.`, 'info');
+      return;
+    }
+
+    const addonNames = [
+      ...((config.addons || []).map((item) => item && item.name).filter(Boolean)),
+      ...(order.extraLabels || []),
+      config.initial ? `Initial ${config.initial}` : '',
+    ].filter(Boolean);
+    const configurationText = [config.base?.name, config.clasp?.name].filter(Boolean).join(' · ');
+    const message = whatsapp.buildCodMessage({
+      orderNumber: order.orderNumber,
+      name: order.customer?.name || '',
+      phone: order.customer?.phone || '',
+      artist: order.artist?.name || '',
+      member: member ? member.name : '',
+      product: order.product?.name || '',
+      configuration: configurationText,
+      addons: addonNames.join(', '),
+      bundle: order.bundle?.name ? `Paket ${order.bundle.name}` : '',
+      quantity: order.quantity || 1,
+      fulfillment: 'COD / Ketemuan — Telkom University Jakarta',
+      address: order.customer?.address || '',
+      note: order.customer?.note || '',
+      total: money(order.total || 0),
+    });
+
+    let number = '';
+    try {
+      const configData = window.locoxatlPublicConfig
+        || fetch('/api/public-config').then((response) => (response.ok ? response.json() : null));
+      const resolved = await configData;
+      number = resolved && resolved.whatsappNumber ? resolved.whatsappNumber : '';
+    } catch { /* the generic wa.me share sheet still works */ }
+
+    setStatus(`Order ${order.orderNumber} is saved. Opening WhatsApp so you can confirm your COD order…`);
+    window.location.href = whatsapp.buildChatUrl(number, message);
+  }
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (busy) return;
@@ -272,7 +345,7 @@
 
     if (!response.ok || !body || !body.order || !body.order.orderNumber) {
       // Includes the documented 503 when MySQL is not configured. The order was not stored,
-      // so the customer must never be sent on to the payment page.
+      // so the customer must never be sent on to the payment page or WhatsApp.
       persistDraft();
       setStatus(describeFailure(body, response.status), 'error');
       setBusy(false);
@@ -294,11 +367,18 @@
       storedAt: new Date().toISOString(),
     };
     order.updatedAt = new Date().toISOString();
-    localStorage.setItem('locoxatl-pending-order', JSON.stringify(order));
+    try { localStorage.setItem('locoxatl-pending-order', JSON.stringify(order)); } catch { /* storage blocked */ }
 
     if (body.order.priceAdjusted) {
       setStatus('The order total was recalculated from the current catalog prices.', 'info');
     }
+
+    // COD never reaches the QRIS page. QRIS and the other methods keep their existing flow.
+    if (fulfillmentMethod === 'cod_telkom') {
+      await redirectToCodWhatsApp();
+      return;
+    }
+
     window.location.href = 'payment.html';
   });
 })();

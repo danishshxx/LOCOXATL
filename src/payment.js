@@ -30,7 +30,7 @@
   // Only the method the buyer picked is shown. The stored snapshot renders immediately, and the
   // live table replaces it so an admin edit (label, instructions, QRIS image) is honoured.
   const storedPayment = order.payment || null;
-  const METHOD_MARKS = { qris: '▦', cash: 'Rp', transfer: '⇄' };
+  const METHOD_MARKS = { qris: 'QRIS', cash: 'CASH', transfer: 'BANK' };
   const METHOD_LABELS = { qris: 'QRIS', cash: 'Cash', transfer: 'Bank Transfer' };
   const methodCode = String(order.paymentMethod || (storedPayment && storedPayment.code) || 'qris').toLowerCase();
 
@@ -50,19 +50,20 @@
     }
 
     const mark = $('#paymentMethodMark');
-    if (mark) mark.textContent = METHOD_MARKS[code] || '▦';
+    if (mark) mark.textContent = METHOD_MARKS[code] || 'PAY';
 
     const image = $('#paymentQrImage');
+    const fallback = $('#paymentMethodFallback');
     if (image) {
       if (imageUrl) {
         image.src = imageUrl;
         image.alt = `${label} payment code`;
         image.hidden = false;
-        if (mark) mark.hidden = true;
+        if (fallback) fallback.hidden = true;
       } else {
         image.removeAttribute('src');
         image.hidden = true;
-        if (mark) mark.hidden = false;
+        if (fallback) fallback.hidden = false;
       }
     }
   }
@@ -92,7 +93,7 @@
   });
 
   publicConfig.then(({ whatsappNumber }) => {
-    if (!whatsappNumber || !/^[1-9]\d{7,14}$/.test(whatsappNumber)) {
+    if (!whatsappNumber) {
       if (whatsappStatus) {
         whatsappStatus.textContent = 'WhatsApp is not configured yet. The button will ask you to choose a chat — you can also copy your order reference.';
         whatsappStatus.hidden = false;

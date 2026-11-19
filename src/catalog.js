@@ -138,6 +138,47 @@
     return FOCAL.test(text) ? text : '50% 50%';
   }
 
+  /**
+   * The storefront sells one shared keychain. Member cards therefore render the same charm
+   * silhouette for everyone and only swap the artwork printed on its face. The silhouette
+   * lives here so every card shares exactly one set of proportions.
+   */
+  const CHARM_HEART_PATH = 'M120 122C92 96 50 112 54 144c4 36 66 84 66 84s62-48 66-84c4-32-38-48-66-22Z';
+  let charmClipSeed = 0;
+
+  const escapeHtml = (value) => String(value == null ? '' : value)
+    .replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+
+  /**
+   * Returns the shared keychain mockup with a member's artwork on the charm face. The artwork
+   * is contained inside the charm (never stretched or cropped into a background) and an empty
+   * or unsafe URL falls back to the clean LOCOXATL monogram.
+   */
+  function keychainArtworkMarkup(input = {}) {
+    const artwork = safeImageUrl(input.artworkUrl);
+    const label = String(input.label || input.name || 'LOCOXATL').trim() || 'LOCOXATL';
+    const monogram = String(input.monogram || 'LX').slice(0, 3).toUpperCase();
+    const clipId = `lx-charm-clip-${++charmClipSeed}`;
+    const face = artwork
+      ? `<image href="${escapeHtml(artwork)}" x="66" y="126" width="108" height="94" preserveAspectRatio="xMidYMid meet" clip-path="url(#${clipId})"/>`
+      : `<text class="keychain-monogram" x="120" y="182" text-anchor="middle">${escapeHtml(monogram)}</text>`;
+
+    return `<span class="keychain-art" role="img" aria-label="${escapeHtml(`${label} keychain artwork`)}">`
+      + '<svg viewBox="0 0 240 300" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">'
+      + `<defs><clipPath id="${clipId}"><path d="${CHARM_HEART_PATH}"/></clipPath></defs>`
+      + '<g class="keychain-hardware" fill="none" stroke="currentColor">'
+      + '<circle cx="120" cy="44" r="26" stroke-width="8"/>'
+      + '<circle cx="120" cy="44" r="26" stroke-width="2" opacity=".35" stroke="#fff"/>'
+      + '<path d="M120 70v26" stroke-width="4" stroke-linecap="round"/>'
+      + '<circle cx="120" cy="102" r="5" stroke-width="3"/>'
+      + '<path d="M120 107v15" stroke-width="4" stroke-linecap="round"/>'
+      + '</g>'
+      + `<path class="keychain-charm-face" d="${CHARM_HEART_PATH}" fill="#fff" stroke="#c9c9cc" stroke-width="2"/>`
+      + face
+      + `<path class="keychain-charm-outline" d="${CHARM_HEART_PATH}" fill="none" stroke="#b9b9be" stroke-width="2"/>`
+      + '</svg></span>';
+  }
+
   return {
     artists,
     products,
@@ -154,5 +195,6 @@
     memberFromApi,
     safeImageUrl,
     safeFocal,
+    keychainArtworkMarkup,
   };
 });

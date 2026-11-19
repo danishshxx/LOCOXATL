@@ -16,8 +16,24 @@ test('publishes separate pages for the complete customer journey', () => {
 test('homepage introduces the brand and sends shopping intent to artist collections', () => {
   const html = read('index.html');
   assert.match(html, /Meet LOCOXATL/i);
-  assert.match(html, /href="shop\.html"[^>]*>\s*(?:Buy Now|Shop the collection)/i);
+  assert.match(html, /href="shop\.html"[^>]*>\s*(?:Explore Collections|Buy Now|Shop the collection)/i);
   assert.doesNotMatch(html, /id="customStudio"|id="productGrid"/);
+});
+
+test('homepage hero plays the existing brand teaser with a poster and safe settings', () => {
+  const html = read('index.html');
+  assert.ok(exists('assets/video/LOCOXATL_hero_teaser.mp4'), 'the supplied hero video is kept in the repo');
+  assert.ok(exists('assets/video/LOCOXATL_hero_teaser_poster.jpg'), 'a poster frame is shipped');
+  assert.match(html, /<video[^>]*class="hero-video"/);
+  assert.match(html, /assets\/video\/LOCOXATL_hero_teaser\.mp4/);
+  assert.match(html, /poster="assets\/video\/LOCOXATL_hero_teaser_poster\.jpg"/);
+  assert.match(html, /autoplay/);
+  assert.match(html, /muted/);
+  assert.match(html, /loop/);
+  assert.match(html, /playsinline/);
+  assert.match(html, /preload="metadata"/);
+  assert.match(html, /locoxatl-wordmark-white\.png/, 'the hero carries the large brand wordmark');
+  assert.match(html, /class="hero-cinema-poster"/, 'a static fallback sits behind the video');
 });
 
 test('artist directory links to artist-specific product collections', () => {

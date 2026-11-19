@@ -81,7 +81,7 @@ test('local server moves to another port if the default port is already occupied
   assert.ok(port > occupiedPort, 'server should choose a free port after the occupied one');
   const response = await request(port, '/');
   assert.equal(response.status, 200);
-  assert.match(response.body, /Meet your new/);
+  assert.match(response.body, /Meet LOCOXATL/);
 });
 
 test('all local links and script references in active pages resolve to files', () => {

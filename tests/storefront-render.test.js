@@ -179,9 +179,18 @@ test('the artist page renders member cards and the configurable hero', async () 
     elements.artistMemberGrid.innerHTML.indexOf('Jisoo') < elements.artistMemberGrid.innerHTML.indexOf('Rosé'),
     'members keep their display order',
   );
-  // The member's keychain artwork is rendered, and a member without one gets the initials.
+  // Every card uses the shared keychain mockup, with the member's artwork on the charm face.
   assert.match(elements.artistMemberGrid.innerHTML, /member-design-jisoo-dddddddddddd\.webp/);
-  assert.match(elements.artistMemberGrid.innerHTML, /member-card-portrait is-empty[^>]*>R<\/span>/, 'Rosé gets an initial');
+  assert.match(elements.artistMemberGrid.innerHTML, /class="keychain-art"/);
+  assert.match(elements.artistMemberGrid.innerHTML, /keychain-charm-face/);
+  assert.doesNotMatch(
+    elements.artistMemberGrid.innerHTML,
+    /member-jisoo-cccccccccccc\.webp/,
+    'the portrait must never be the storefront card image',
+  );
+  assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /background-image:url/, 'artwork is contained on the charm, not a cropped background');
+  assert.match(elements.artistMemberGrid.innerHTML, /keychain-monogram[^>]*>LX</, 'a member without artwork gets the shared keychain placeholder');
+  assert.match(elements.artistMemberGrid.innerHTML, /member-card-name">Rosé</, 'the name stays visible under the product');
 
   // Member cards link to the studio with the member slug — there is no product choice.
   assert.match(elements.artistMemberGrid.innerHTML, /studio\.html\?artist=blackpink&amp;member=jisoo/);
@@ -260,7 +269,24 @@ test('a member payload with an unsafe portrait never reaches the markup', async 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /javascript:alert/);
-  assert.match(elements.artistMemberGrid.innerHTML, /member-card-portrait is-empty/, 'it falls back to initials');
+  assert.match(elements.artistMemberGrid.innerHTML, /keychain-monogram/, 'it falls back to the shared keychain');
+});
+
+test('the shared keychain mockup contains artwork on the charm without stretching it', () => {
+  const markup = catalog.keychainArtworkMarkup({
+    artworkUrl: '/assets/uploads/catalog/member-design-jisoo-1234abcd.webp',
+    name: 'Jisoo',
+  });
+
+  assert.match(markup, /class="keychain-art"/);
+  assert.match(markup, /<image href="\/assets\/uploads\/catalog\/member-design-jisoo-1234abcd\.webp"/);
+  assert.match(markup, /preserveAspectRatio="xMidYMid meet"/, 'artwork keeps its aspect ratio');
+  assert.match(markup, /clip-path="url\(#lx-charm-clip-\d+\)"/, 'artwork is clipped to the charm face');
+  assert.doesNotMatch(markup, /background-image|background-size/, 'artwork is never an oversized background');
+
+  const unsafe = catalog.keychainArtworkMarkup({ artworkUrl: 'javascript:alert(1)', name: 'X' });
+  assert.doesNotMatch(unsafe, /javascript:/);
+  assert.match(unsafe, /keychain-monogram/, 'an unusable URL falls back to the shared placeholder');
 });
 
 test('names and descriptions are HTML-escaped in both pages', async () => {

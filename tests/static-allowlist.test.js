@@ -47,6 +47,8 @@ test('the allowlist publishes the storefront pages, styles, client scripts and a
     '/assets/brand/favicon.png',
     '/assets/fonts/Inter-Regular.otf',
     '/assets/vendor/three/three.module.js',
+    '/assets/video/LOCOXATL_hero_teaser.mp4',
+    '/assets/video/LOCOXATL_hero_teaser_poster.jpg',
   ];
 
   for (const pathname of allowed) {
@@ -89,7 +91,7 @@ test('the HTTP server returns 404 for every non-public path', async (t) => {
   const { port } = await listenWithFallback(server, 0);
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
-  for (const pathname of ['/', '/admin', '/shop.html', '/src/shop-page.js', '/src/three/viewer.mjs']) {
+  for (const pathname of ['/', '/admin', '/shop.html', '/src/shop-page.js', '/src/three/viewer.mjs', '/assets/video/LOCOXATL_hero_teaser.mp4', '/assets/video/LOCOXATL_hero_teaser_poster.jpg']) {
     const response = await request(port, pathname);
     assert.equal(response.status, 200, `${pathname} should be served`);
   }

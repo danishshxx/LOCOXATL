@@ -34,28 +34,20 @@
     if (memberSection) memberSection.hidden = false;
   }
 
-  function initials(name) {
-    return String(name || '')
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join('') || '?';
-  }
-
   /**
-   * A member is the customer's design choice. The card carries the member's keychain artwork
-   * (falling back to the portrait, then initials) and links to the studio with the member slug.
+   * A member is the customer's design choice. Every card therefore shows the same shared
+   * keychain model with that member's artwork on the charm face — never the portrait. The
+   * portrait stays available inside the admin dashboard only.
    */
   function memberCard(artist, member) {
-    const artwork = safeImage(member.designImageUrl) || safeImage(member.portraitUrl);
-    const media = artwork
-      ? `<span class="member-card-portrait has-image" style="background-image:url('${artwork}')" role="img" aria-label="${safe(member.name)} keychain artwork"></span>`
-      : `<span class="member-card-portrait is-empty" aria-hidden="true">${safe(initials(member.name))}</span>`;
+    const product = catalog.keychainArtworkMarkup({
+      artworkUrl: safeImage(member.designImageUrl),
+      name: member.name,
+    });
     const href = `studio.html?artist=${encodeURIComponent(artist.slug)}&amp;member=${encodeURIComponent(member.slug)}${requestedVersion ? `&amp;version=${requestedVersion}` : ''}`;
     return `
       <a class="member-card member-card-link reveal is-visible" href="${href}" data-member="${safe(member.slug)}">
-        ${media}
+        <span class="member-card-product">${product}</span>
         <span class="member-card-name">${safe(member.name)}</span>
       </a>`;
   }
@@ -63,9 +55,10 @@
   /** Shown when a group has no members configured (or while offline): one shared keychain. */
   function genericCard(artist) {
     const href = `studio.html?artist=${encodeURIComponent(artist.slug)}`;
+    const product = catalog.keychainArtworkMarkup({ name: 'LOCOXATL', monogram: 'LX' });
     return `
       <a class="member-card member-card-link reveal is-visible" href="${href}">
-        <span class="member-card-portrait is-empty" aria-hidden="true">◇</span>
+        <span class="member-card-product">${product}</span>
         <span class="member-card-name">Customize this keychain</span>
       </a>`;
   }
