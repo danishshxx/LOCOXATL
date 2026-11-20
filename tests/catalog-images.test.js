@@ -46,6 +46,11 @@ async function execute(sql, params = []) {
   if (new RegExp(`^SELECT ${COLUMNS} FROM catalog_groups WHERE is_active = 1`, 'i').test(query)) {
     return [groups.filter((row) => row.is_active).map((row) => ({ ...row }))];
   }
+  // loadCatalog now asks for every group first, then filters, so an unseeded table can be told
+  // apart from one where the dashboard switched every row off.
+  if (new RegExp(`^SELECT ${COLUMNS} FROM catalog_groups ORDER BY`, 'i').test(query)) {
+    return [groups.map((row) => ({ ...row }))];
+  }
   if (/^UPDATE catalog_groups SET image_url = \? WHERE id = \?$/i.test(query)) {
     const row = groups.find((entry) => entry.id === Number(params[1]));
     if (!row) return [{ affectedRows: 0 }];

@@ -30,11 +30,21 @@
 
   const member = order.member || null;
   const config = order.configuration || {};
+
   // The design name already carries the product, so the legacy silhouette label is not repeated.
-  const configText = [...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
-  $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
-  $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
-  $('#summaryConfiguration').textContent = configText;
+  function configurationText() {
+    return [...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
+  }
+
+  function renderDesignSummary() {
+    $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
+    $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
+    $('#summaryConfiguration').textContent = configurationText();
+    $('#summaryPrice').textContent = money(order.total || 0);
+    $('#summaryTotal').textContent = money(order.total || 0);
+  }
+
+  renderDesignSummary();
 
   // The summary shows the same image the studio previewed, unclipped, with a text fallback.
   const previewImage = $('#summaryProductImage');
@@ -63,8 +73,79 @@
     previewEmpty.textContent = previewLabel;
     previewEmpty.hidden = Boolean(previewUrl);
   }
-  $('#summaryPrice').textContent = money(order.total || 0);
-  $('#summaryTotal').textContent = money(order.total || 0);
+
+  /**
+   * A stored selection can outlive the dashboard that published it. Anything the live catalogue no
+   * longer offers is removed before it is displayed or submitted.
+   */
+  function sanitizePendingOrder(payload) {
+    if (!payload || !Array.isArray(payload.groups)) return '';
+
+    const liveCategories = new Set((payload.optionCategories || []).map((c) => String(c.slug).toLowerCase()));
+    const liveItems = ((payload.options && payload.options.items) || [])
+      .map((item) => ({ key: String(item.key || '').toLowerCase(), label: item.label || '' }));
+    const liveItemKeys = new Set(liveItems.map((item) => item.key));
+    const liveItemLabels = new Set(liveItems.map((item) => item.label).filter(Boolean));
+    const liveBundles = new Set((payload.bundles || []).map((bundle) => String(bundle.id)));
+    const liveMembers = new Set((payload.members || []).map((item) => String(item.slug).toLowerCase()));
+    const liveProducts = new Set((payload.products || []).map((item) => String(item.slug).toLowerCase()));
+
+    if (member && !liveMembers.has(String(member.slug).toLowerCase())) return 'design';
+    if (!member && order.product && !liveProducts.has(String(order.product.slug).toLowerCase())) return 'design';
+
+    let changed = false;
+    const addons = (config.addons || []).filter((item) => liveItemKeys.has(String(item.id || '').toLowerCase()));
+    if (addons.length !== (config.addons || []).length) { config.addons = addons; changed = true; }
+
+    if (config.clasp && !liveItemKeys.has(String(config.clasp.id || '').toLowerCase())) {
+      config.clasp = null;
+      changed = true;
+    }
+    if (config.initial && !liveItemKeys.has('initial')) {
+      config.initial = '';
+      changed = true;
+    }
+    if (order.bundle && !liveBundles.has(String(order.bundle.id))) {
+      order.bundle = null;
+      changed = true;
+    }
+
+    if (order.selections && typeof order.selections === 'object') {
+      const next = {};
+      for (const [slug, value] of Object.entries(order.selections)) {
+        const keys = Array.isArray(value) ? value : [value];
+        if (!liveCategories.has(String(slug).toLowerCase())) { changed = true; continue; }
+        const kept = keys.filter((key) => liveItemKeys.has(String(key).toLowerCase()));
+        if (kept.length !== keys.length) changed = true;
+        if (kept.length) next[slug] = kept;
+      }
+      order.selections = next;
+    }
+
+    const extraLabels = (order.extraLabels || []).filter((label) => liveItemLabels.has(label));
+    if (extraLabels.length !== (order.extraLabels || []).length) { order.extraLabels = extraLabels; changed = true; }
+
+    if (!changed) return '';
+    try { localStorage.setItem('locoxatl-pending-order', JSON.stringify(order)); } catch { /* storage blocked */ }
+    return 'options';
+  }
+
+  const catalogReady = window.locoxatlCatalog && typeof window.locoxatlCatalog.then === 'function'
+    ? window.locoxatlCatalog
+    : Promise.resolve(null);
+
+  catalogReady.then((payload) => {
+    const result = sanitizePendingOrder(payload);
+    if (result === 'design') {
+      summary.innerHTML = '<div class="empty-state"><h2>This design is no longer available.</h2><p>Pick a design from the current collections to continue.</p><a class="button button-dark" href="shop.html">Browse collections <span>↗</span></a></div>';
+      if (submitButton) submitButton.disabled = true;
+      return;
+    }
+    if (result === 'options') {
+      renderDesignSummary();
+      setStatus('Some options are no longer available and were removed. Your total is recalculated when you continue.', 'info');
+    }
+  }).catch(() => { /* keep the stored snapshot */ });
 
   // Delivery and payment come from the studio, and the payment list from the dashboard.
   const FULFILLMENT_LABELS = {

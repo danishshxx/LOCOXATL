@@ -23,12 +23,16 @@ function catalog(overrides = {}) {
     bundles: [],
     optionCategories: [
       { slug: 'addon', name: 'Universal Add-ons', selectionMode: 'multiple', isRequired: false, countsTowardBundleFree: true, sortOrder: 0, isActive: true },
+      { slug: 'clasp', name: 'Clasps', selectionMode: 'single', isRequired: true, countsTowardBundleFree: false, sortOrder: 1, isActive: true },
     ],
     options: {
       base: { key: 'keychain', label: 'Keychain base', price: 45000, isActive: true },
       addons: [],
-      clasps: [],
-      items: [{ key: 'pearl', category: 'addon', label: 'Pearl drop', price: 8000, isActive: true }],
+      clasps: [{ key: 'silver', category: 'clasp', label: 'Silver clasp', price: 7000, isActive: true }],
+      items: [
+        { key: 'pearl', category: 'addon', label: 'Pearl drop', price: 8000, isActive: true },
+        { key: 'silver', category: 'clasp', label: 'Silver clasp', price: 7000, isActive: true },
+      ],
     },
     paymentMethods: [
       { code: 'qris', label: 'QRIS', instructions: 'Scan.', imageUrl: null, isActive: true, sortOrder: 0 },
@@ -112,7 +116,7 @@ test('a COD order validates with the existing Cash method and keeps the unpaid l
 
   assert.equal(result.fulfillmentMethod, 'cod_telkom');
   assert.equal(result.paymentMethod, 'cash');
-  assert.equal(result.quote.total, 53000);
+  assert.equal(result.quote.total, 45000 + 8000 + 7000);
 });
 
 test('the COD WhatsApp message contains every detail the admin needs', () => {

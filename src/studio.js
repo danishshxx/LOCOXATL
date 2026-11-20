@@ -172,8 +172,9 @@
 
         activeProduct = payload.product || activeProduct;
         pricingTable = payload.options || null;
-        // The dashboard owns the categories and their items; the bundled list stays until it answers.
-        if (payload.options && Array.isArray(payload.options.items) && payload.options.items.length) {
+        // The dashboard owns the categories and their items. An empty list is a decision too, so
+        // the bundled list is replaced as soon as the live payload answers.
+        if (payload.options && Array.isArray(payload.options.items)) {
           activeItems = payload.options.items
             .filter((item) => item && item.isActive !== false)
             .map((item) => ({
@@ -184,7 +185,7 @@
               personalization: Boolean(item.personalization),
             }));
         }
-        if (Array.isArray(payload.optionCategories) && payload.optionCategories.length) {
+        if (Array.isArray(payload.optionCategories)) {
           activeCategories = payload.optionCategories;
         }
         applyStaticStepVisibility();
@@ -305,6 +306,9 @@
       const addonStep = $('#addonStep');
       const claspStep = $('#claspStep');
 
+      // Both static steps follow the same rule as the rendered ones: no live category, no step.
+      if (claspStep) claspStep.hidden = !categoryOffered('clasp');
+
       if (addonStep) {
         addonStep.hidden = !categoryOffered('addon');
         // A row whose option the dashboard switched off leaves the list; the rest of the step stays.
@@ -337,10 +341,26 @@
         }
       }
 
+      // The letter box belongs to the initial option: no live option, no box.
+      const letterBox = $('#initialText');
+      if (letterBox) {
+        letterBox.hidden = !itemByKey('initial');
+        if (letterBox.hidden) {
+          letterBox.value = '';
+          letterBox.disabled = true;
+          state.initial = '';
+        }
+      }
+
       if (claspStep && !claspStep.hidden) {
         const buttons = $$('.clasp-choice[data-clasp]', claspStep);
         const offered = buttons.filter((button) => Boolean(itemByKey(button.dataset.clasp)));
-        buttons.filter((button) => !offered.includes(button)).forEach((button) => button.classList.remove('selected'));
+        // A clasp the dashboard switched off is not shown and cannot stay selected.
+        buttons.forEach((button) => {
+          const live = offered.includes(button);
+          button.hidden = !live;
+          if (!live) button.classList.remove('selected');
+        });
         // The default clasp has to be one the dashboard still offers.
         if (offered.length && !offered.some((button) => button.classList.contains('selected'))) {
           offered[0].classList.add('selected');

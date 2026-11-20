@@ -345,7 +345,7 @@ test('an inactive option item is never priced', () => {
   assert.deepEqual(quote.lines, []);
 });
 
-test('a deactivated clasp category is neither required nor charged', () => {
+test('a deactivated clasp category rejects a stale clasp and charges nothing for it', () => {
   // What loadCatalog({ activeOnly: true }) returns once the clasp category is switched off.
   const catalogWithoutClasp = {
     ...catalog,
@@ -356,16 +356,24 @@ test('a deactivated clasp category is neither required nor charged', () => {
     },
   };
 
-  const payload = orderPayload();
-  payload.order.configuration.selections = { addon: ['pearl'], clasp: ['silver'] };
+  const stale = orderPayload();
+  stale.order.configuration.selections = { addon: ['pearl'], clasp: ['silver'] };
+  assert.throws(
+    () => validateOrderPayload(stale, { catalog: catalogWithoutClasp }),
+    (error) => error instanceof ValidationError && Boolean(error.details.clasp),
+    'a clasp the storefront no longer offers is rejected',
+  );
 
-  const result = validateOrderPayload(payload, { catalog: catalogWithoutClasp });
+  const clean = orderPayload();
+  clean.order.configuration.selections = { addon: ['pearl'] };
+  delete clean.order.configuration.clasp;
+  const result = validateOrderPayload(clean, { catalog: catalogWithoutClasp });
 
   assert.equal(result.quote.total, 45000 + 8000, 'base plus the add-on only');
   assert.equal(result.configuration.clasp, '', 'no clasp is recorded for an order that offered none');
   assert.ok(
     !result.quote.lines.some((line) => line.category === 'clasp'),
-    'the stale clasp selection must be dropped, not priced',
+    'the stale clasp selection must not be priced',
   );
 });
 

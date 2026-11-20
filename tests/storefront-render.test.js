@@ -110,8 +110,9 @@ test('an empty published catalogue shows the empty state instead of stale cards'
   runPage(shopSource, { elements: { artistGrid: grid }, payload: { source: 'database', groups: [], members: [], products: [] }, search: '' });
   await new Promise((resolve) => setImmediate(resolve));
 
-  // The bundled catalogue renders first, then the empty payload leaves it in place.
-  assert.match(grid.innerHTML, /artist-card/);
+  // The database answered with nothing published, so the bundled cards must not survive.
+  assert.doesNotMatch(grid.innerHTML, /artist-card/);
+  assert.match(grid.innerHTML, /No collections are published/);
 });
 
 // ---------------------------------------------------------------------------

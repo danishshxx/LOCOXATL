@@ -40,7 +40,10 @@
   if (!ready || typeof ready.then !== 'function') return;
 
   ready.then((payload) => {
-    if (!payload || !Array.isArray(payload.groups) || !payload.groups.length) return;
-    render(payload.groups.map((group, index) => catalog.artistFromGroup(group, index)));
+    if (!payload || !Array.isArray(payload.groups)) return;
+    // A database payload is authoritative even when it is empty: every collection is unpublished.
+    if (payload.source === 'database' || payload.groups.length) {
+      render(payload.groups.map((group, index) => catalog.artistFromGroup(group, index)));
+    }
   }).catch(() => { /* keep the bundled catalogue */ });
 })();

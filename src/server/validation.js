@@ -41,8 +41,9 @@ const DEFAULT_CATEGORIES = [
  */
 function optionInventory(catalogData) {
   const options = catalogData && catalogData.options ? catalogData.options : serverCatalog.staticPricingTable();
-  // Inactive rows are never offered, so they are never priced or required.
-  if (Array.isArray(options.items) && options.items.length) {
+  // A live payload always carries the items list, even when it is empty: an empty list means the
+  // dashboard switched everything off, not "fall back to the bundled options".
+  if (Array.isArray(options.items)) {
     return options.items
       .filter((item) => item && item.isActive !== false)
       .map((item) => ({
@@ -76,7 +77,9 @@ function optionInventory(catalogData) {
 }
 
 function optionCategoriesFor(catalogData) {
-  const categories = catalogData && Array.isArray(catalogData.optionCategories) && catalogData.optionCategories.length
+  // A live payload always carries the categories array, even when it is empty: an empty list
+  // means the dashboard switched every category off, not "fall back to the bundled defaults".
+  const categories = catalogData && Array.isArray(catalogData.optionCategories)
     ? catalogData.optionCategories
     : DEFAULT_CATEGORIES;
   // A category the dashboard switched off is not offered at all, so it cannot be required.
@@ -412,7 +415,18 @@ function validateOrderPayload(payload = {}, context = {}) {
 
   const categories = optionCategoriesFor(catalogData);
   const items = optionInventory(catalogData);
-  const selections = offeredSelections(configurationSelections(configuration), categories);
+  // A category or item the dashboard switched off is rejected, never silently dropped: an order
+  // must not carry a choice the storefront is no longer offering.
+  const requestedSelections = configurationSelections(configuration);
+  const liveSlugs = new Set(categories.map((category) => String(category.slug).toLowerCase()));
+  for (const [slug, keys] of Object.entries(requestedSelections)) {
+    if (!keys.length || liveSlugs.has(slug)) continue;
+    errors[slug === 'addon' ? 'addons' : slug] = 'That option is not available right now.';
+  }
+  if (configuration.initial && !items.some((item) => item.key === 'initial')) {
+    errors.initial = 'Personalization is not available right now.';
+  }
+  const selections = offeredSelections(requestedSelections, categories);
   // The stored snapshot must not claim a clasp or add-on the catalogue never offered.
   if (!(selections.clasp && selections.clasp.length)) configuration.clasp = '';
   if (!(selections.addon && selections.addon.length)) configuration.addons = [];

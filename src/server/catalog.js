@@ -486,9 +486,13 @@ function mapProducts(rows, groups) {
  * the bundled designs keeps the storefront working until the migration runs.
  */
 async function loadProductsForGroups(groups, { activeOnly }) {
+  // A product only exists inside a published collection: with no collections there are none, and a
+  // product of a switched-off collection is not published either.
+  if (!groups.length) return [];
   try {
     const rows = await queryProductRows({ activeOnly });
-    return mapProducts(rows, groups);
+    const live = new Set(groups.map((group) => Number(group.id)));
+    return mapProducts(rows, groups).filter((product) => live.has(Number(product.groupId)));
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return productsForGroups(groups);
@@ -497,9 +501,14 @@ async function loadProductsForGroups(groups, { activeOnly }) {
 
 async function loadPricingTable({ activeOnly }) {
   try {
-    const rows = await queryPricingRows({ activeOnly });
+    const rows = await queryPricingRows({ activeOnly: false });
     if (!rows.length) return staticPricingTable();
-    return groupPricingOptions(rows);
+    // A deactivated row leaves the public table, but the base price row always stays so the
+    // global price is not silently replaced by a bundled default.
+    const visible = activeOnly
+      ? rows.filter((row) => row.isActive !== false || row.category === 'base')
+      : rows;
+    return groupPricingOptions(visible);
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return staticPricingTable();
@@ -523,28 +532,55 @@ async function loadProductSettingsRow() {
 }
 
 /**
- * Loads the storefront catalogue. Falls back to src/catalog.js + src/options.js when MySQL is
- * unconfigured, a table is missing, the connection fails, or the tables are still empty.
+ * Drops option rows whose category is not published. The base price row is a setting, not a
+ * customer-facing category, so it always stays.
+ */
+function filterOptionsByCategories(options, liveCategories) {
+  const keep = (item) => item.category === 'base' || liveCategories.has(String(item.category).toLowerCase());
+  return {
+    ...options,
+    addons: (options.addons || []).filter(keep),
+    clasps: (options.clasps || []).filter(keep),
+    items: (options.items || []).filter(keep),
+  };
+}
+
+/** A bundle scoped to a collection that is not published is not offered anywhere. */
+function filterBundlesByGroups(bundles, groups, activeOnly) {
+  if (!activeOnly) return bundles;
+  const liveIds = new Set(groups.map((group) => Number(group.id)));
+  return bundles.filter((bundle) => bundle.groupId == null || liveIds.has(Number(bundle.groupId)));
+}
+
+/**
+ * Loads the storefront catalogue. The bundled data in src/catalog.js + src/options.js is only
+ * used when MySQL is unconfigured, a table is missing, the connection fails, or the tables were
+ * never seeded. Rows that exist but are switched off publish nothing.
  */
 async function loadCatalog({ activeOnly = true } = {}) {
   if (!isConfigured()) return fallbackCatalog();
 
   try {
-    const groups = await queryGroups({ activeOnly });
-    if (!groups.length) return fallbackCatalog();
+    // The bundled catalogue is only a first-run fallback: a database whose rows all exist but are
+    // switched off publishes nothing, so a dashboard decision is never undone by a fallback.
+    const allGroups = await queryGroups({ activeOnly: false });
+    if (!allGroups.length) return fallbackCatalog();
+    const groups = activeOnly ? allGroups.filter((group) => group.isActive !== false) : allGroups;
     const members = await loadMembers({ activeOnly });
     const products = await loadProductsForGroups(groups, { activeOnly });
-    const options = await loadPricingTable({ activeOnly: true });
+    const options = await loadPricingTable({ activeOnly });
+    const optionCategories = await loadOptionCategories({ activeOnly });
+    const liveCategories = new Set(optionCategories.map((category) => String(category.slug).toLowerCase()));
+    const visibleOptions = filterOptionsByCategories(options, liveCategories);
+    const bundles = filterBundlesByGroups(await loadBundles({ activeOnly, groups }), groups, activeOnly);
     // One global base price, with an optional per-design override on top. Resolving it here means
     // the storefront, the admin list and the order API all read the same effective number.
-    const globalBasePrice = Number(options.base && options.base.price) || DEFAULT_BASE_PRICE;
+    const globalBasePrice = Number(visibleOptions.base && visibleOptions.base.price) || DEFAULT_BASE_PRICE;
     const effectivePrice = (override) => (override == null ? globalBasePrice : Number(override));
     const pricedProducts = products.map((item) => ({
       ...item,
       price: effectivePrice(item.priceOverride),
     }));
-    const optionCategories = await loadOptionCategories({ activeOnly: true });
-    const bundles = await loadBundles({ activeOnly, groups });
     // The storefront needs to group members by slug, and the browser never sees ids it should not
     // need. Attaching groupSlug here keeps the client rendering logic free of id lookups.
     const slugById = new Map(groups.map((group) => [group.id, group.slug]));
@@ -554,7 +590,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
       price: effectivePrice(member.priceOverride),
     }));
     const settingsRow = await loadProductSettingsRow();
-    const product = productFromOptions(options);
+    const product = productFromOptions(visibleOptions);
     // Payment methods are ancillary: if that table cannot be read, the bundled defaults keep the
     // storefront and the order API usable instead of failing the whole catalogue.
     let paymentMethods = staticPaymentMethods();
@@ -564,7 +600,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
         ? allPaymentMethods
         : allPaymentMethods.filter((method) => method.isActive);
     } catch { /* keep the defaults */ }
-    return { source: 'database', groups, members: membersWithGroup, products: pricedProducts, bundles, options, optionCategories, paymentMethods, product };
+    return { source: 'database', groups, members: membersWithGroup, products: pricedProducts, bundles, options: visibleOptions, optionCategories, paymentMethods, product };
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return fallbackCatalog();
@@ -1839,8 +1875,12 @@ async function queryCategoryRows({ activeOnly = false } = {}) {
  */
 async function loadOptionCategories({ activeOnly }) {
   try {
-    const rows = await queryCategoryRows({ activeOnly });
-    return rows.length ? rows.map(mapOptionCategory) : staticOptionCategories();
+    const rows = await queryCategoryRows({ activeOnly: false });
+    // Only a table that was never seeded falls back to the bundled categories; a table whose
+    // rows are all switched off stays empty so the dashboard decision is honoured.
+    if (!rows.length) return staticOptionCategories();
+    const visible = activeOnly ? rows.filter((row) => row.is_active) : rows;
+    return visible.map(mapOptionCategory);
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return staticOptionCategories();
