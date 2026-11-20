@@ -83,6 +83,7 @@
 
     const liveCategories = new Set((payload.optionCategories || []).map((c) => String(c.slug).toLowerCase()));
     const liveItems = ((payload.options && payload.options.items) || [])
+      .filter((item) => item && item.isActive !== false && item.isLive !== false)
       .map((item) => ({ key: String(item.key || '').toLowerCase(), label: item.label || '' }));
     const liveItemKeys = new Set(liveItems.map((item) => item.key));
     const liveItemLabels = new Set(liveItems.map((item) => item.label).filter(Boolean));

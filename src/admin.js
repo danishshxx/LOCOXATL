@@ -2580,6 +2580,31 @@
     tbody.querySelectorAll('[data-delete-option]').forEach((button) => {
       button.addEventListener('click', () => deletePricingOption(Number(button.dataset.deleteOption)));
     });
+    // The switch saves on its own, like every other live toggle in the dashboard.
+    tbody.querySelectorAll('[data-pricing-active]').forEach((input) => {
+      input.addEventListener('change', () => setPricingOptionLive(input.dataset.pricingActive, input.checked));
+    });
+  }
+
+  async function setPricingOptionLive(key, isActive) {
+    const option = pricingOptions.find((row) => row.key === key);
+    if (!option || !option.id) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/pricing/${option.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Option could not be updated.');
+      option.isActive = Boolean(data.option ? data.option.isActive : isActive);
+      const label = $(`[data-pricing-active="${key}"]`)?.closest('.toggle-switch')?.querySelector('.toggle-label');
+      if (label) label.textContent = option.isActive ? 'Live' : 'Off';
+      showToast(option.isActive ? 'Option shown in the studio.' : 'Option hidden from the studio.');
+    } catch (error) {
+      showToast(`Pricing error: ${error.message}`);
+      await loadPricing();
+    }
   }
 
   async function savePricing() {

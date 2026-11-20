@@ -553,6 +553,15 @@ function filterBundlesByGroups(bundles, groups, activeOnly) {
 }
 
 /**
+ * A category with no live item left is not a section: publishing it would render an empty header.
+ */
+function filterEmptyCategories(categories, items, activeOnly) {
+  if (!activeOnly) return categories;
+  const live = new Set(items.map((item) => String(item.category).toLowerCase()));
+  return categories.filter((category) => live.has(String(category.slug).toLowerCase()));
+}
+
+/**
  * Loads the storefront catalogue. The bundled data in src/catalog.js + src/options.js is only
  * used when MySQL is unconfigured, a table is missing, the connection fails, or the tables were
  * never seeded. Rows that exist but are switched off publish nothing.
@@ -572,6 +581,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
     const optionCategories = await loadOptionCategories({ activeOnly });
     const liveCategories = new Set(optionCategories.map((category) => String(category.slug).toLowerCase()));
     const visibleOptions = filterOptionsByCategories(options, liveCategories);
+    const visibleCategories = filterEmptyCategories(optionCategories, visibleOptions.items, activeOnly);
     const bundles = filterBundlesByGroups(await loadBundles({ activeOnly, groups }), groups, activeOnly);
     // One global base price, with an optional per-design override on top. Resolving it here means
     // the storefront, the admin list and the order API all read the same effective number.
@@ -600,7 +610,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
         ? allPaymentMethods
         : allPaymentMethods.filter((method) => method.isActive);
     } catch { /* keep the defaults */ }
-    return { source: 'database', groups, members: membersWithGroup, products: pricedProducts, bundles, options: visibleOptions, optionCategories, paymentMethods, product };
+    return { source: 'database', groups, members: membersWithGroup, products: pricedProducts, bundles, options: visibleOptions, optionCategories: visibleCategories, paymentMethods, product };
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return fallbackCatalog();

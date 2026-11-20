@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 // Live visibility: a row the dashboard switches off must leave the public catalogue, the studio,
 // the checkout and the order API, while the admin loaders keep showing it.
@@ -26,7 +28,8 @@ function seededState() {
     options: [
       { id: 1, category: 'base', option_key: 'keychain', label: 'Keychain', price: 45000, is_active: 1, sort_order: 0 },
       { id: 2, category: 'addon', option_key: 'pearl', label: 'Pearl drop', price: 8000, is_active: 1, sort_order: 0 },
-      { id: 3, category: 'addon', option_key: 'initial', label: 'Initial', price: 5000, is_active: 0, sort_order: 1 },
+      { id: 6, category: 'addon', option_key: 'star', label: 'Mini star', price: 12000, is_active: 1, sort_order: 1 },
+      { id: 3, category: 'addon', option_key: 'initial', label: 'Initial', price: 5000, is_active: 0, sort_order: 2 },
       { id: 4, category: 'clasp', option_key: 'silver', label: 'Silver clasp', price: 7000, is_active: 1, sort_order: 0 },
       { id: 5, category: 'strap', option_key: 'silicone', label: 'Silicone strap', price: 0, is_active: 1, sort_order: 0 },
     ],
@@ -68,7 +71,20 @@ async function execute(sql, params = []) {
     const rows = state.products.filter((row) => !activeOnly || row.is_active);
     return [rows.filter((row) => !ids || ids.includes(row.group_id)).map((row) => ({ ...row }))];
   }
+  if (/FROM pricing_options WHERE id = \?/i.test(query)) {
+    const row = state.options.find((entry) => entry.id === Number(params[0]));
+    return [row ? [{ ...row }] : []];
+  }
   if (/FROM pricing_options/i.test(query)) return pick(state.options);
+  if (/^UPDATE pricing_options SET/i.test(query)) {
+    const row = state.options.find((entry) => entry.id === Number(params[params.length - 1]));
+    if (!row) return [{ affectedRows: 0 }];
+    const assignments = query.match(/SET (.*) WHERE/i)[1].split(',').map((part) => part.trim());
+    assignments.forEach((assignment, index) => {
+      row[assignment.split('=')[0].trim()] = params[index];
+    });
+    return [{ affectedRows: 1 }];
+  }
   if (/FROM option_categories/i.test(query)) return pick(state.categories);
   if (/FROM catalog_bundles/i.test(query)) return pick(state.bundles);
   if (/FROM product_settings/i.test(query)) return [[{ id: 1, updated_at: '2026-01-01T00:00:00Z' }]];
@@ -117,12 +133,54 @@ test('the public catalogue drops every row the dashboard switched off', async ()
   assert.deepEqual(payload.products.map((product) => product.slug), ['blackpink-cloud-heart']);
   // The strap category is off, so its item goes with it even though the item itself is on. The
   // base row is a price setting, so it is reported as options.base rather than as a selectable item.
-  assert.deepEqual(keys(payload.options.items), ['pearl', 'silver']);
+  assert.deepEqual(keys(payload.options.items), ['pearl', 'silver', 'star']);
   assert.equal(payload.options.base.price, 45000);
   assert.deepEqual(payload.optionCategories.map((category) => category.slug), ['addon', 'clasp']);
   // A bundle scoped to a hidden collection is not offered anywhere either.
   assert.deepEqual(payload.bundles.map((bundle) => bundle.slug), ['duo']);
 });
+
+test('switching one accessory off keeps its siblings and persists the row', async () => {
+  const pearl = state.options.find((row) => row.option_key === 'pearl');
+  try {
+    const updated = await serverCatalog.updatePricingOption(pearl.id, { isActive: false });
+    assert.equal(updated.isActive, false, 'the admin toggle writes is_active = 0');
+    assert.equal(state.options.find((row) => row.option_key === 'pearl').is_active, 0);
+
+    const payload = await serverCatalog.loadCatalog({ activeOnly: true });
+    assert.deepEqual(keys(payload.options.items), ['silver', 'star'], 'pearl leaves, its siblings stay');
+    assert.ok(payload.optionCategories.some((category) => category.slug === 'addon'), 'the category still has items');
+  } finally {
+    pearl.is_active = 1;
+  }
+});
+
+test('a category whose items are all switched off is not published', async () => {
+  const addons = state.options.filter((row) => row.category === 'addon');
+  const previous = addons.map((row) => row.is_active);
+  addons.forEach((row) => { row.is_active = 0; });
+
+  try {
+    const payload = await serverCatalog.loadCatalog({ activeOnly: true });
+    assert.deepEqual(payload.optionCategories.map((category) => category.slug), ['clasp']);
+    assert.ok(!payload.options.items.some((item) => item.category === 'addon'));
+  } finally {
+    addons.forEach((row, index) => { row.is_active = previous[index]; });
+  }
+});
+
+test('the admin catalogue still lists a switched-off accessory', async () => {
+  const pearl = state.options.find((row) => row.option_key === 'pearl');
+  pearl.is_active = 0;
+  try {
+    const options = await serverCatalog.listPricing();
+    const row = options.find((option) => option.key === 'pearl');
+    assert.equal(row.isActive, false, 'the dashboard must still see and re-enable the row');
+  } finally {
+    pearl.is_active = 1;
+  }
+});
+
 
 test('the admin loaders keep every row, live or not', async () => {
   const groups = await serverCatalog.listAllGroups();
@@ -245,6 +303,34 @@ test('an initial is rejected once the personalization option is switched off', (
     () => validateOrderPayload(payload, { catalog }),
     (error) => error instanceof ValidationError && Boolean(error.details.initial),
   );
+});
+
+test('an order naming a switched-off accessory inside a live category is rejected', () => {
+  const catalog = catalogPayload();
+  catalog.options.items = [
+    { key: 'keychain', category: 'base', label: 'Keychain', price: 45000, isActive: true },
+    { key: 'star', category: 'addon', label: 'Mini star', price: 12000, isActive: true },
+    { key: 'pearl', category: 'addon', label: 'Pearl drop', price: 8000, isActive: false },
+    { key: 'silver', category: 'clasp', label: 'Silver clasp', price: 7000, isActive: true },
+  ];
+
+  const payload = orderPayload();
+  payload.order.configuration.addons = [{ id: 'pearl' }];
+
+  assert.throws(
+    () => validateOrderPayload(payload, { catalog }),
+    (error) => error instanceof ValidationError && Boolean(error.details.addons),
+    'the sibling item being live does not make the switched-off one orderable',
+  );
+});
+
+test('the pricing table saves an accessory toggle without pressing Save pricing', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'admin.js'), 'utf8');
+
+  assert.match(source, /querySelectorAll\('\[data-pricing-active\]'\)/, 'the switch is wired');
+  assert.match(source, /function setPricingOptionLive\(/, 'a single-row update exists');
+  assert.match(source, /\/api\/admin\/pricing\/\$\{option\.id\}/, 'it PATCHes that one option');
+  assert.match(source, /JSON\.stringify\(\{ isActive \}\)/, 'and sends the new live state');
 });
 
 test('a switched-off bundle is rejected', () => {

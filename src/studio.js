@@ -176,7 +176,7 @@
         // the bundled list is replaced as soon as the live payload answers.
         if (payload.options && Array.isArray(payload.options.items)) {
           activeItems = payload.options.items
-            .filter((item) => item && item.isActive !== false)
+            .filter((item) => item && item.isActive !== false && item.isLive !== false)
             .map((item) => ({
               key: String(item.key || '').toLowerCase(),
               category: String(item.category || 'addon').toLowerCase(),
@@ -294,7 +294,7 @@
     /** A category is offered when the dashboard left it active and it still has an active item. */
     function categoryOffered(slug) {
       const category = categoryBySlug(slug);
-      if (!category || category.isActive === false) return false;
+      if (!category || category.isActive === false || category.isLive === false) return false;
       return categoryItems(slug).length > 0;
     }
 
@@ -374,6 +374,7 @@
 
       const sections = activeCategories.filter((category) => category
         && category.isActive !== false
+        && category.isLive !== false
         && !STATIC_CATEGORIES.includes(category.slug));
 
       container.innerHTML = sections.map((category) => {

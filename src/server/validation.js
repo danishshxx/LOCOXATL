@@ -45,7 +45,7 @@ function optionInventory(catalogData) {
   // dashboard switched everything off, not "fall back to the bundled options".
   if (Array.isArray(options.items)) {
     return options.items
-      .filter((item) => item && item.isActive !== false)
+      .filter((item) => item && item.isActive !== false && item.isLive !== false)
       .map((item) => ({
         key: String(item.key ?? item.id ?? '').toLowerCase(),
         category: String(item.category || 'addon').toLowerCase(),
@@ -83,7 +83,7 @@ function optionCategoriesFor(catalogData) {
     ? catalogData.optionCategories
     : DEFAULT_CATEGORIES;
   // A category the dashboard switched off is not offered at all, so it cannot be required.
-  return categories.filter((category) => category && category.isActive !== false);
+  return categories.filter((category) => category && category.isActive !== false && category.isLive !== false);
 }
 
 /**
