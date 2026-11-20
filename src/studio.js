@@ -485,14 +485,13 @@
         if (!$('#shopeeModal') || $('#shopeeModal').hidden) return;
         renderFulfillmentChoices();
       })
-      .catch(() => { /* the generic wa.me share sheet still works */ });
+      .catch(() => { applyGroupNotice(); /* the generic wa.me share sheet still works */ });
 
     /** One readable line describing the current build, used by the Shopee chat message. */
     function describeSelection() {
       const parts = [];
       if (activeMember) parts.push(`${activeMember.name} keychain`);
       else if (activeProduct && activeProduct.name) parts.push(activeProduct.name);
-      if (state.base && state.base.name) parts.push(state.base.name);
       state.addons.forEach((addon) => parts.push(addon.name));
       if (state.initial) parts.push(`Initial ${state.initial}`);
       if (state.clasp) parts.push(state.clasp.name);
@@ -637,6 +636,8 @@
       const quote = pricing.quoteSelections({
         // The standard base is only a fallback: a bundle replaces it, never adds to it.
         basePrice: state.base.price,
+        // A design-level override wins over the global base price; a bundle still wins over both.
+        priceOverride: activeMember ? activeMember.priceOverride : (activeProduct && activeProduct.priceOverride),
         bundle: activeBundle
           ? {
             price: Number(activeBundle.price),

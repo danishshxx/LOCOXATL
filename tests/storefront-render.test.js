@@ -179,17 +179,17 @@ test('the artist page renders member cards and the configurable hero', async () 
     elements.artistMemberGrid.innerHTML.indexOf('Jisoo') < elements.artistMemberGrid.innerHTML.indexOf('Rosé'),
     'members keep their display order',
   );
-  // Every card uses the shared keychain mockup, with the member's artwork on the charm face.
+  // Every card shows the member's uploaded artwork directly, with no silhouette frame.
   assert.match(elements.artistMemberGrid.innerHTML, /member-design-jisoo-dddddddddddd\.webp/);
-  assert.match(elements.artistMemberGrid.innerHTML, /class="keychain-art"/);
-  assert.match(elements.artistMemberGrid.innerHTML, /keychain-charm-face/);
+  assert.match(elements.artistMemberGrid.innerHTML, /class="member-card-image"/);
+  assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /<svg/, 'the heart SVG frame and split ring are gone');
   assert.doesNotMatch(
     elements.artistMemberGrid.innerHTML,
     /member-jisoo-cccccccccccc\.webp/,
     'the portrait must never be the storefront card image',
   );
-  assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /background-image:url/, 'artwork is contained on the charm, not a cropped background');
-  assert.match(elements.artistMemberGrid.innerHTML, /keychain-monogram[^>]*>LX</, 'a member without artwork gets the shared keychain placeholder');
+  assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /background-image:url/, 'artwork is contained, not a cropped background');
+  assert.match(elements.artistMemberGrid.innerHTML, /member-card-image-empty[^>]*>LX</, 'a member without artwork gets the shared placeholder');
   assert.match(elements.artistMemberGrid.innerHTML, /member-card-name">Rosé</, 'the name stays visible under the product');
 
   // Member cards link to the studio with the member slug — there is no product choice.
@@ -269,7 +269,7 @@ test('a member payload with an unsafe portrait never reaches the markup', async 
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.doesNotMatch(elements.artistMemberGrid.innerHTML, /javascript:alert/);
-  assert.match(elements.artistMemberGrid.innerHTML, /keychain-monogram/, 'it falls back to the shared keychain');
+  assert.match(elements.artistMemberGrid.innerHTML, /member-card-image-empty/, 'it falls back to the placeholder card');
 });
 
 test('the shared keychain mockup contains artwork on the charm without stretching it', () => {

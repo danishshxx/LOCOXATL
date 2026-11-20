@@ -30,7 +30,8 @@
 
   const member = order.member || null;
   const config = order.configuration || {};
-  const configText = [config.base?.name, ...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
+  // The design name already carries the product, so the legacy silhouette label is not repeated.
+  const configText = [...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
   $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
   $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
   $('#summaryConfiguration').textContent = configText;
@@ -264,7 +265,7 @@
       ...(order.extraLabels || []),
       config.initial ? `Initial ${config.initial}` : '',
     ].filter(Boolean);
-    const configurationText = [config.base?.name, config.clasp?.name].filter(Boolean).join(' · ');
+    const configurationText = config.clasp?.name || '';
     const message = whatsapp.buildCodMessage({
       orderNumber: order.orderNumber,
       name: order.customer?.name || '',

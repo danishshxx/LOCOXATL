@@ -35,16 +35,15 @@
   }
 
   /**
-   * A member is the customer's design choice. Every card therefore shows the same shared
-   * keychain model with that member's artwork on the charm face — never the portrait. The
-   * portrait stays available inside the admin dashboard only.
+   * A member is the customer's design choice. Every card shows that design's uploaded artwork
+   * at full card size; the portrait stays inside the admin dashboard only.
    */
   function memberCard(artist, member) {
-    const product = catalog.keychainArtworkMarkup({
-      artworkUrl: safeImage(member.designImageUrl),
-      name: member.name,
-    });
+    const artwork = safeImage(member.designImageUrl);
     const href = `studio.html?artist=${encodeURIComponent(artist.slug)}&amp;member=${encodeURIComponent(member.slug)}${requestedVersion ? `&amp;version=${requestedVersion}` : ''}`;
+    const product = artwork
+      ? `<img class="member-card-image" src="${artwork}" alt="${safe(`${member.name} keychain design`)}" loading="lazy" decoding="async" />`
+      : '<span class="member-card-image-empty" aria-hidden="true">LX</span>';
     return `
       <a class="member-card member-card-link reveal is-visible" href="${href}" data-member="${safe(member.slug)}">
         <span class="member-card-product">${product}</span>
@@ -55,10 +54,9 @@
   /** Shown when a group has no members configured (or while offline): one shared keychain. */
   function genericCard(artist) {
     const href = `studio.html?artist=${encodeURIComponent(artist.slug)}`;
-    const product = catalog.keychainArtworkMarkup({ name: 'LOCOXATL', monogram: 'LX' });
     return `
       <a class="member-card member-card-link reveal is-visible" href="${href}">
-        <span class="member-card-product">${product}</span>
+        <span class="member-card-product"><span class="member-card-image-empty" aria-hidden="true">LX</span></span>
         <span class="member-card-name">Customize this keychain</span>
       </a>`;
   }

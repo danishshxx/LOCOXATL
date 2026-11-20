@@ -13,8 +13,8 @@ process.env.DB_NAME = 'catalog_products_test';
 const staticCatalog = require('../src/catalog.js');
 
 const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
-const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
-const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
+const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, price_override, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 const groups = [
@@ -69,6 +69,7 @@ async function execute(sql, params = []) {
     return [[{ next_order: rows.reduce((max, row) => Math.max(max, row.sort_order), -1) + 1 }]];
   }
   if (/^INSERT(?: IGNORE)? INTO catalog_products/i.test(query)) {
+    const ignore = /INSERT IGNORE/i.test(query);
     const slug = params[1];
     const groupId = Number(params[0]);
     if (products.some((row) => row.group_id === groupId && row.slug === slug)) {
@@ -84,8 +85,9 @@ async function execute(sql, params = []) {
       template_key: params[3],
       description: params[4] || '',
       base_price: Number(params[5]),
-      image_url: params[6] || null,
-      is_active: /INSERT IGNORE/i.test(query) ? 1 : Number(params[7]),
+      price_override: ignore || params[6] == null ? null : Number(params[6]),
+      image_url: ignore ? null : (params[7] || null),
+      is_active: ignore ? 1 : Number(params[8]),
       sort_order: Number(params[params.length - 1]),
     };
     products.push(row);
@@ -229,6 +231,24 @@ test('the seeded designs keep the storefront slugs and prices', async () => {
   assert.equal(cloudHeart.baseId, 'heart');
   assert.equal(cloudHeart.groupSlug, 'blackpink');
   assert.equal(cloudHeart.artistSlug, 'blackpink');
+});
+
+test('a design override is resolved on the public catalogue, and NULL keeps the global price', async () => {
+  const before = (await catalog.loadCatalog({ activeOnly: true }))
+    .products.find((product) => product.slug === 'blackpink-cloud-heart');
+  assert.equal(before.priceOverride, null);
+  assert.equal(before.price, 45000, 'without an override the shared base price applies');
+
+  const row = products.find((product) => product.slug === 'cloud-heart');
+  row.price_override = 52000;
+  try {
+    const priced = (await catalog.loadCatalog({ activeOnly: true }))
+      .products.find((product) => product.slug === 'blackpink-cloud-heart');
+    assert.equal(priced.priceOverride, 52000);
+    assert.equal(priced.price, 52000, 'the override replaces the global base price');
+  } finally {
+    row.price_override = null;
+  }
 });
 
 test('creating a design slugifies the name and keeps slugs unique inside the collection', async () => {

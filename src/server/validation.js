@@ -421,12 +421,14 @@ function validateOrderPayload(payload = {}, context = {}) {
   let artistName;
 
   if (memberMode) {
-    // One shared base price from pricing_options; member artwork never creates a product variant.
-    basePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
+    // The global base price is the fallback; a design-level override wins when one is set.
+    const globalBasePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
       ? Number(productSettings.basePrice)
       : (pricingTable && pricingTable.base && Number.isFinite(Number(pricingTable.base.price))
         ? Number(pricingTable.base.price)
         : 45000);
+    const memberOverride = member ? member.priceOverride : null;
+    basePrice = memberOverride == null ? globalBasePrice : Number(memberOverride);
     artistName = group ? group.name : null;
     memberInfo = {
       slug: member.slug,
@@ -441,7 +443,11 @@ function validateOrderPayload(payload = {}, context = {}) {
       ? products.find((item) => item.groupSlug === group.slug && item.baseId === configuration.base) || null
       : null;
     pricedProduct = baseSwap || product;
-    basePrice = pricedProduct.price;
+    // A design-level override replaces the global base price; without one, `price` already holds
+    // the resolved global base price.
+    basePrice = pricedProduct.priceOverride == null
+      ? Number(pricedProduct.price)
+      : Number(pricedProduct.priceOverride);
     artistName = group ? group.name : (pricedProduct.groupName || null);
   }
 

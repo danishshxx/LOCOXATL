@@ -2083,6 +2083,7 @@
     $('#artistMemberFormId').value = member ? String(member.id) : '';
     $('#artistMemberName').value = member ? member.name : '';
     $('#artistMemberSlug').value = member ? member.slug : '';
+    $('#artistMemberPriceOverride').value = member && member.priceOverride != null ? String(member.priceOverride) : '';
     $('#artistMemberGroup').value = String(member ? member.groupId : ($('#memberGroupFilter').value || artistGroups[0].id));
     $('#artistMemberSortOrder').value = String(member ? member.sortOrder : 0);
     $('#artistMemberVersion').value = member && member.versionKey ? member.versionKey : 'yellow';
@@ -2188,6 +2189,10 @@
       versionKey: $('#artistMemberVersion').value,
       sortOrder: Number($('#artistMemberSortOrder').value),
       isActive: $('#artistMemberIsActive').checked,
+      // Blank means "use the global base price", which the API stores as NULL.
+      priceOverride: $('#artistMemberPriceOverride').value === ''
+        ? null
+        : Number($('#artistMemberPriceOverride').value),
     };
     // The portrait and keychain artwork are sent with the row so a failed insert never orphans
     // an upload.
