@@ -24,9 +24,9 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-  const defaultProduct = catalog.productDefaults
-    ? { ...catalog.productDefaults }
-    : { baseModel: 'heart', baseLabel: 'Heart', basePrice: 0 };
+  // The studio only needs the shared base price. The design itself is the member or product row
+  // the customer opened, so no silhouette key is involved.
+  const defaultProduct = { basePrice: Number((catalog.productDefaults || {}).basePrice) || 0 };
 
   /**
    * The bundled group paints immediately; member artwork and live product settings arrive from
@@ -61,7 +61,13 @@
     const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value).replace('IDR', 'Rp').replace(/\s/g, '');
     const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
-    const baseNames = { heart: 'Heart', star: 'Star', bow: 'Ribbon' };
+    // A design is identified by its member or product row, never by a silhouette key.
+    const designId = (member, product) => String(
+      (member && (member.slug || member.id)) || (product && (product.slug || product.id)) || '',
+    );
+    const designName = (member, product) => (member && member.name)
+      || (product && product.name)
+      || 'LOCOXATL keychain';
     let activeProduct = initialProduct || defaultProduct;
     let activeMember = initialMember || null;
     // Live prices from /api/catalog. Null until the request answers, so the bundled
@@ -79,15 +85,14 @@
     let activeGroup = null;
     // Delivery and payment choices. Shopee is settled in Shopee, so it never asks for a method.
     let fulfillmentMethod = 'campus_delivery';
-    let publicConfig = null;
     // Yellow or pink, when the collection page sent one. It travels with the order so the
     // server can prove the design belongs to that version.
     const activeVersion = initialVersion || null;
 
     const state = {
       base: {
-        id: baseNames[activeProduct.baseModel] ? activeProduct.baseModel : 'heart',
-        name: activeProduct.baseLabel || baseNames[activeProduct.baseModel] || baseNames.heart,
+        id: designId(activeMember, activeProduct),
+        name: designName(activeMember, activeProduct),
         price: Number(activeProduct.basePrice) || 0,
       },
       clasp: { id: 'silver', name: 'Silver clasp', price: claspPrice('silver') },
@@ -102,10 +107,9 @@
     const safeUpload = (url) => (catalog.safeImageUrl ? catalog.safeImageUrl(url) : '');
 
     function applyProduct(product) {
-      const baseModel = baseNames[product.baseModel] ? product.baseModel : 'heart';
       state.base = {
-        id: baseModel,
-        name: product.baseLabel || baseNames[baseModel],
+        id: designId(activeMember, product),
+        name: designName(activeMember, product),
         price: Number(product.basePrice) || 0,
       };
     }
@@ -140,7 +144,7 @@
 
     applyGroupLabels(artist, activeMember);
 
-    // Live product settings: the global silhouette/price and universal add-on/clasp prices.
+    // Live product settings: the shared base price and the universal add-on/clasp prices.
     const catalogReady = window.locoxatlCatalog;
     if (catalogReady && typeof catalogReady.then === 'function') {
       catalogReady.then((payload) => {
@@ -475,17 +479,38 @@
       { code: 'shopee_external', label: 'Eksternal: Order via Shopee', detail: 'Chat CS untuk link CO Shopee' },
     ];
 
-    const waNumber = () => (publicConfig && publicConfig.whatsappNumber) || '';
+    // One shared promise, so every WhatsApp control waits for the same configured number instead
+    // of rendering a link before the request answers.
+    const configReady = window.locoxatlPublicConfig && typeof window.locoxatlPublicConfig.then === 'function'
+      ? window.locoxatlPublicConfig.catch(() => null)
+      : fetch('/api/public-config')
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null);
 
-    fetch('/api/public-config')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        publicConfig = data || null;
-        applyGroupNotice();
-        if (!$('#shopeeModal') || $('#shopeeModal').hidden) return;
-        renderFulfillmentChoices();
-      })
-      .catch(() => { applyGroupNotice(); /* the generic wa.me share sheet still works */ });
+    configReady.then(() => {
+      applyGroupNotice();
+      if ($('#shopeeModal') && !$('#shopeeModal').hidden) renderFulfillmentChoices();
+    });
+
+    /**
+     * Points a control at the configured CS chat. Until that number is known the control carries
+     * no href at all, so a click can never land on the generic wa.me share sheet.
+     */
+    function applyChatLink(link, message) {
+      if (!link || !whatsapp) return;
+      configReady.then((config) => {
+        const url = config && config.whatsappNumber
+          ? whatsapp.buildDirectChatUrl(config.whatsappNumber, message)
+          : '';
+        if (!url) {
+          link.removeAttribute('href');
+          link.setAttribute('aria-disabled', 'true');
+          return;
+        }
+        link.href = url;
+        link.removeAttribute('aria-disabled');
+      });
+    }
 
     /** One readable line describing the current build, used by the Shopee chat message. */
     function describeSelection() {
@@ -514,13 +539,10 @@
       notice.hidden = !isCustom;
       if (!isCustom) return;
 
-      const link = $('#customDesignWaLink');
-      if (link && whatsapp) {
-        link.href = whatsapp.buildChatUrl(
-          waNumber(),
-          whatsapp.buildCustomDesignMessage(activeMember ? activeMember.name : artist.name),
-        );
-      }
+      applyChatLink(
+        $('#customDesignWaLink'),
+        whatsapp.buildCustomDesignMessage(activeMember ? activeMember.name : artist.name),
+      );
     }
 
     function renderFulfillmentChoices() {
@@ -553,18 +575,15 @@
       const totalEl = $('#shopeeTotal');
       if (totalEl) totalEl.textContent = money(total);
 
-      const link = $('#shopeeCsLink');
-      if (link && whatsapp) {
-        link.href = whatsapp.buildChatUrl(
-          waNumber(),
-          whatsapp.buildShopeeMessage({
-            selection: describeSelection(),
-            artist: artist.name,
-            total: money(total),
-            payment: 'Shopee',
-          }),
-        );
-      }
+      applyChatLink(
+        $('#shopeeCsLink'),
+        whatsapp.buildShopeeMessage({
+          selection: describeSelection(),
+          artist: artist.name,
+          total: money(total),
+          payment: 'Shopee',
+        }),
+      );
 
       modal.hidden = false;
       if (backdrop) backdrop.hidden = false;
@@ -636,8 +655,6 @@
       const quote = pricing.quoteSelections({
         // The standard base is only a fallback: a bundle replaces it, never adds to it.
         basePrice: state.base.price,
-        // A design-level override wins over the global base price; a bundle still wins over both.
-        priceOverride: activeMember ? activeMember.priceOverride : (activeProduct && activeProduct.priceOverride),
         bundle: activeBundle
           ? {
             price: Number(activeBundle.price),
@@ -761,9 +778,11 @@
       const pendingOrder = {
         artist: { slug: artist.slug, name: artist.name, fandom: artist.fandom },
         member: activeMember
-          ? { slug: activeMember.slug, name: activeMember.name, designImageUrl: activeMember.designImageUrl || null }
+          ? { id: activeMember.id ?? null, slug: activeMember.slug, name: activeMember.name, designImageUrl: activeMember.designImageUrl || null }
           : null,
-        baseModel: state.base.id,
+        product: !activeMember && (activeProduct.id || activeProduct.slug)
+          ? { id: activeProduct.id ?? null, slug: activeProduct.slug || null, name: activeProduct.name || null }
+          : null,
         version: activeVersion || undefined,
         fulfillmentMethod,
         previewImage: lastPreview.imageUrl || undefined,

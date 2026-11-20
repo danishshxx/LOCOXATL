@@ -562,17 +562,6 @@ async function runAdditiveMigrations() {
       await connection.query("UPDATE option_categories SET bundle_included = 1 WHERE slug = 'silicone-strap'");
     }
 
-    // 14. Optional per-design price override (migration 014). A NULL override keeps the global
-    //     base price as the effective price, so existing designs are never repriced.
-    const productPriceColumns = await tableColumns(connection, 'catalog_products');
-    if (!productPriceColumns.has('price_override')) {
-      await connection.query('ALTER TABLE catalog_products ADD COLUMN price_override INT UNSIGNED NULL DEFAULT NULL');
-    }
-    const memberPriceColumns = await tableColumns(connection, 'artist_members');
-    if (!memberPriceColumns.has('price_override')) {
-      await connection.query('ALTER TABLE artist_members ADD COLUMN price_override INT UNSIGNED NULL DEFAULT NULL');
-    }
-
     const catalogSeed = await seedCatalogGroups();
     const pricingSeed = await seedPricingOptions();
     const productSeed = await seedCatalogProducts();

@@ -108,6 +108,16 @@
     return `https://wa.me/${digits}?text=${text}`;
   }
 
+  /**
+   * A direct chat link for a known number. Returns '' when the number cannot be normalised, so a
+   * caller can leave its control disabled instead of silently shipping the generic share sheet.
+   */
+  function buildDirectChatUrl(whatsappNumber, message) {
+    const digits = normalizeWhatsAppNumber(whatsappNumber);
+    if (!digits) return '';
+    return `https://wa.me/${digits}?text=${encodeURIComponent(String(message == null ? '' : message))}`;
+  }
+
   return {
     VERIFICATION_TEMPLATE,
     buildVerificationMessage,
@@ -116,5 +126,6 @@
     buildCodMessage,
     normalizeWhatsAppNumber,
     buildChatUrl,
+    buildDirectChatUrl,
   };
 });

@@ -1047,14 +1047,14 @@
     }
 
     const c = configuration.configuration || configuration;
-    const baseName = c.base?.name || c.base || 'Heart Base';
+    const baseName = c.base?.name || c.base || 'Base design';
     const claspName = c.clasp?.name || c.clasp || 'Silver Clasp';
     const initial = c.initial || 'None';
     const addons = Array.isArray(c.addons) ? c.addons : [];
 
     list.innerHTML = `
       <div class="bom-item">
-        <strong>Base Charm Silhouette</strong>
+        <strong>Base Design</strong>
         <span>${escapeHtml(String(baseName))} (Beveled Acrylic)</span>
       </div>
       <div class="bom-item">
@@ -2083,7 +2083,6 @@
     $('#artistMemberFormId').value = member ? String(member.id) : '';
     $('#artistMemberName').value = member ? member.name : '';
     $('#artistMemberSlug').value = member ? member.slug : '';
-    $('#artistMemberPriceOverride').value = member && member.priceOverride != null ? String(member.priceOverride) : '';
     $('#artistMemberGroup').value = String(member ? member.groupId : ($('#memberGroupFilter').value || artistGroups[0].id));
     $('#artistMemberSortOrder').value = String(member ? member.sortOrder : 0);
     $('#artistMemberVersion').value = member && member.versionKey ? member.versionKey : 'yellow';
@@ -2189,10 +2188,6 @@
       versionKey: $('#artistMemberVersion').value,
       sortOrder: Number($('#artistMemberSortOrder').value),
       isActive: $('#artistMemberIsActive').checked,
-      // Blank means "use the global base price", which the API stores as NULL.
-      priceOverride: $('#artistMemberPriceOverride').value === ''
-        ? null
-        : Number($('#artistMemberPriceOverride').value),
     };
     // The portrait and keychain artwork are sent with the row so a failed insert never orphans
     // an upload.
@@ -2287,7 +2282,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Product Setup — one global silhouette, shared base price and universal options
+  // Product Setup: the shared base price and the universal option prices.
   // ---------------------------------------------------------------------------
   async function loadProductSettings() {
     const note = $('#productSettingsNote');
@@ -2307,16 +2302,6 @@
 
   function renderProductSettings() {
     if (!productSettings) return;
-    const select = $('#baseModelSelect');
-    if (select) {
-      const models = Array.isArray(productSettings.baseModels) && productSettings.baseModels.length
-        ? productSettings.baseModels
-        : [{ key: 'heart', label: 'Heart' }, { key: 'star', label: 'Star' }, { key: 'bow', label: 'Ribbon' }];
-      select.innerHTML = models
-        .map((model) => `<option value="${escapeHtml(model.key)}">${escapeHtml(model.label)}</option>`)
-        .join('');
-      select.value = productSettings.baseModel || 'heart';
-    }
     const price = $('#basePriceInput');
     if (price) price.value = String(productSettings.basePrice ?? '');
   }
@@ -2326,7 +2311,6 @@
     const button = $('#saveProductSettingsBtn');
     const note = $('#productSettingsNote');
     const payload = {
-      baseModel: $('#baseModelSelect').value,
       basePrice: Number($('#basePriceInput').value),
     };
     if (!Number.isInteger(payload.basePrice) || payload.basePrice < 0) {

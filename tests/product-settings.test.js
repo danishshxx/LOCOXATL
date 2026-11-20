@@ -7,10 +7,10 @@ const root = path.join(__dirname, '..');
 const { validateOrderPayload, ValidationError } = require('../src/server/validation');
 const catalog = require('../src/server/catalog');
 
-// One shared keychain: the member supplies the artwork, the base silhouette and base price are
-// global, and add-ons/clasp still price through the shared pricing module.
+// One shared keychain: the member supplies the artwork, the base price is global, and
+// add-ons/clasp still price through the shared pricing module.
 
-const product = { baseModel: 'heart', baseLabel: 'Heart', basePrice: 45000, baseKey: 'keychain' };
+const product = { basePrice: 45000, baseKey: 'keychain' };
 
 function catalogPayload(overrides = {}) {
   return {
@@ -61,13 +61,13 @@ test('a member order prices from the shared base price plus universal options', 
   assert.equal(result.productName, 'Jisoo Keychain — BLACKPINK');
 });
 
-test('a member order cannot switch the global silhouette', () => {
+test('a member order resolves by member id and ignores a legacy silhouette key', () => {
   const payload = memberPayload();
   payload.order.configuration.base = { id: 'star' };
-  assert.throws(
-    () => validateOrderPayload(payload, { catalog: catalogPayload() }),
-    (error) => error instanceof ValidationError && Boolean(error.details.base),
-  );
+  const result = validateOrderPayload(payload, { catalog: catalogPayload() });
+
+  assert.equal(result.member.slug, 'jisoo');
+  assert.equal(result.quote.unitPrice, 60000, 'the design is priced, the base key is not consulted');
 });
 
 test('an inactive or mis-parented member is rejected', () => {
@@ -116,7 +116,7 @@ test('a legacy product-slug order still validates for backward compatibility', (
   assert.equal(result.productName, 'Cloud Heart — BLACKPINK');
 });
 
-test('the shared product descriptor always exposes one silhouette and price', () => {
+test('the shared product descriptor exposes the base price without a silhouette', () => {
   const options = catalog.groupPricingOptions([
     { category: 'base', key: 'keychain', label: 'Keychain base', price: 47000, isActive: true, sortOrder: 0 },
     { category: 'addon', key: 'pearl', label: 'Pearl drop', price: 8000, isActive: true, sortOrder: 0 },
@@ -126,13 +126,16 @@ test('the shared product descriptor always exposes one silhouette and price', ()
   assert.deepEqual(options.addons.map((option) => option.key), ['pearl']);
   assert.deepEqual(options.clasps.map((option) => option.key), ['silver']);
 
-  const built = catalog.productFromOptions('bow', options);
-  assert.equal(built.baseModel, 'bow');
-  assert.equal(built.baseLabel, 'Ribbon');
+  const built = catalog.productFromOptions(options);
   assert.equal(built.basePrice, 47000);
+  assert.equal(built.baseKey, 'keychain');
+  assert.equal(built.baseLabel, 'Keychain base');
+  assert.equal(built.baseModel, undefined, 'no silhouette key is published');
 
-  // An unknown model falls back to the current default without inventing a price.
-  assert.equal(catalog.productFromOptions('diamond', options).baseModel, 'heart');
+  // An empty table still resolves to the shared base option rather than inventing a shape.
+  const empty = catalog.productFromOptions({ base: null });
+  assert.equal(empty.basePrice, 45000);
+  assert.equal(empty.baseModel, undefined);
 });
 
 test('migration 008 is additive, idempotent and keeps catalog_products', () => {

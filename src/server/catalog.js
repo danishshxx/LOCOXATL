@@ -10,8 +10,8 @@ const uploads = require('./uploads');
 // unreachable, the tables are missing, or they are still empty.
 
 const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
-const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, price_override, image_url, is_active, sort_order, created_at, updated_at, version_key';
-const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, created_at, updated_at, version_key';
+const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 const BUNDLE_FIELDS = 'id, group_id, slug, name, description, bundle_price, free_addon_quota, allowed_addon_keys, image_url, is_active, sort_order, created_at, updated_at';
 const CATEGORY_FIELDS = 'id, slug, name, selection_mode, is_required, counts_toward_bundle_free, bundle_included, sort_order, is_active, created_at, updated_at';
@@ -21,14 +21,9 @@ const VERSION_KEYS = ['yellow', 'pink'];
 const VERSION_LABELS = { yellow: 'Yellow Version', pink: 'Pink Version' };
 const DEFAULT_VERSION = 'yellow';
 
-// One shared keychain product: a single global base silhouette plus one shared base price row.
-// Member artwork (artist_members.design_image_url) is a design applied to this product, never a
-// separate product record.
-const BASE_MODELS = ['heart', 'star', 'bow'];
-const BASE_MODEL_LABELS = { heart: 'Heart', star: 'Star', bow: 'Ribbon' };
-const DEFAULT_BASE_MODEL = 'heart';
-// The bundled studio opens on the heart silhouette at Rp45.000 (src/catalog.js productTemplates
-// and studio.html), so that is the current default rather than an invented value.
+// One shared keychain: a single base price row that every design uses. The designs themselves are
+// catalog_products rows and artist_members artwork, so an order resolves a design by its id or
+// slug and never by a legacy silhouette key.
 const DEFAULT_BASE_PRICE = 45000;
 const BASE_OPTION_KEY = 'keychain';
 const BASE_OPTION_LABEL = 'Keychain base';
@@ -123,12 +118,6 @@ function parsePrice(value, fieldName = 'price') {
   return number;
 }
 
-// A blank or null override means "use the global base price", so it is stored as NULL.
-function parsePriceOverride(value) {
-  if (value === null || value === undefined || value === '') return null;
-  return parsePrice(value, 'priceOverride');
-}
-
 function parseVersionKey(value) {
   const key = cleanText(value, 32).toLowerCase();
   return VERSION_KEYS.includes(key) ? key : DEFAULT_VERSION;
@@ -203,7 +192,6 @@ function mapMember(row) {
     name: row.name,
     portraitUrl: row.portrait_url || null,
     designImageUrl: row.design_image_url || null,
-    priceOverride: row.price_override == null ? null : Number(row.price_override),
     versionKey: parseVersionKey(row.version_key),
     isActive: Boolean(row.is_active),
     sortOrder: Number(row.sort_order) || 0,
@@ -229,10 +217,8 @@ function mapProduct(row, group) {
     name: row.name,
     templateKey: row.template_key,
     versionKey: parseVersionKey(row.version_key),
-    baseId: staticCatalog.baseIdForTemplate(row.template_key),
     description: row.description || '',
     price: Number(row.base_price) || 0,
-    priceOverride: row.price_override == null ? null : Number(row.price_override),
     imageUrl: row.image_url || null,
     isActive: Boolean(row.is_active),
     sortOrder: Number(row.sort_order) || 0,
@@ -320,7 +306,6 @@ function normalizeStaticProduct(product) {
     name: product.name,
     templateKey: product.templateKey || null,
     versionKey: DEFAULT_VERSION,
-    baseId: product.baseId,
     description: product.description || '',
     price: Number(product.price) || 0,
     imageUrl: null,
@@ -400,15 +385,13 @@ function groupPricingOptions(options) {
   };
 }
 
-/** The public product descriptor: one silhouette and one shared base price for every member. */
-function productFromOptions(baseModel, options) {
-  const model = BASE_MODELS.includes(baseModel) ? baseModel : DEFAULT_BASE_MODEL;
+/** The public product descriptor: the shared base price every design uses. */
+function productFromOptions(options) {
   const base = options && options.base ? options.base : defaultBaseOption();
   return {
-    baseModel: model,
-    baseLabel: BASE_MODEL_LABELS[model],
     basePrice: Number(base.price) || 0,
     baseKey: base.key || BASE_OPTION_KEY,
+    baseLabel: base.label || BASE_OPTION_LABEL,
   };
 }
 
@@ -423,7 +406,7 @@ function fallbackCatalog() {
     options,
     optionCategories: staticOptionCategories(),
     paymentMethods: staticPaymentMethods(),
-    product: productFromOptions(DEFAULT_BASE_MODEL, options),
+    product: productFromOptions(options),
   };
 }
 
@@ -512,13 +495,13 @@ async function loadPricingTable({ activeOnly }) {
 }
 
 /**
- * The global silhouette row. A database upgraded before migration 008 has no product_settings
+ * The shared settings row. A database upgraded before migration 008 has no product_settings
  * table yet, so a missing table simply means "use the bundled default" instead of a failure.
  */
 async function loadProductSettingsRow() {
   try {
     const [rows] = await getPool().execute(
-      'SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1',
+      'SELECT id, updated_at FROM product_settings WHERE id = 1 LIMIT 1',
     );
     return rows[0] || null;
   } catch (error) {
@@ -540,14 +523,6 @@ async function loadCatalog({ activeOnly = true } = {}) {
     const members = await loadMembers({ activeOnly });
     const products = await loadProductsForGroups(groups, { activeOnly });
     const options = await loadPricingTable({ activeOnly: true });
-    // One global base price, with an optional per-design override on top. Resolving it here means
-    // the storefront and the order API read the same effective number.
-    const globalBasePrice = Number(options.base && options.base.price) || DEFAULT_BASE_PRICE;
-    const effectivePrice = (override) => (override == null ? globalBasePrice : Number(override));
-    const pricedProducts = products.map((product) => ({
-      ...product,
-      price: effectivePrice(product.priceOverride),
-    }));
     const optionCategories = await loadOptionCategories({ activeOnly: true });
     const bundles = await loadBundles({ activeOnly, groups });
     // The storefront needs to group members by slug, and the browser never sees ids it should not
@@ -556,10 +531,9 @@ async function loadCatalog({ activeOnly = true } = {}) {
     const membersWithGroup = members.map((member) => ({
       ...member,
       groupSlug: slugById.get(member.groupId) || null,
-      price: effectivePrice(member.priceOverride),
     }));
     const settingsRow = await loadProductSettingsRow();
-    const product = productFromOptions(settingsRow ? settingsRow.base_model : DEFAULT_BASE_MODEL, options);
+    const product = productFromOptions(options);
     // Payment methods are ancillary: if that table cannot be read, the bundled defaults keep the
     // storefront and the order API usable instead of failing the whole catalogue.
     let paymentMethods = staticPaymentMethods();
@@ -569,7 +543,7 @@ async function loadCatalog({ activeOnly = true } = {}) {
         ? allPaymentMethods
         : allPaymentMethods.filter((method) => method.isActive);
     } catch { /* keep the defaults */ }
-    return { source: 'database', groups, members: membersWithGroup, products: pricedProducts, bundles, options, optionCategories, paymentMethods, product };
+    return { source: 'database', groups, members: membersWithGroup, products, bundles, options, optionCategories, paymentMethods, product };
   } catch (error) {
     if (!isMissingDatabase(error)) throw error;
     return fallbackCatalog();
@@ -1199,10 +1173,6 @@ function normalizeProductInput(input = {}, { partial = false } = {}) {
     result.basePrice = parsePrice(values.basePrice, 'basePrice');
   }
 
-  if (values.priceOverride !== undefined) {
-    result.priceOverride = parsePriceOverride(values.priceOverride);
-  }
-
   if (values.description !== undefined) result.description = cleanMultiline(values.description, MAX_DESCRIPTION_LENGTH);
   if (values.imageUrl !== undefined) result.imageUrl = normalizeImageInput(values.imageUrl);
   if (values.versionKey !== undefined) result.versionKey = normalizeVersionInput(values.versionKey);
@@ -1250,8 +1220,8 @@ async function createProduct(input = {}) {
   try {
     const [result] = await pool.execute(
       `INSERT INTO catalog_products
-        (group_id, slug, name, template_key, description, base_price, price_override, image_url, is_active, sort_order, version_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, version_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         groupId,
         slug,
@@ -1259,7 +1229,6 @@ async function createProduct(input = {}) {
         values.templateKey,
         values.description || '',
         values.basePrice,
-        values.priceOverride === undefined ? null : values.priceOverride,
         imageUrl,
         values.isActive === false ? 0 : 1,
         sortOrder,
@@ -1295,7 +1264,6 @@ async function updateProduct(id, input = {}) {
   if (values.templateKey !== undefined) { assignments.push('template_key = ?'); params.push(values.templateKey); }
   if (values.description !== undefined) { assignments.push('description = ?'); params.push(values.description); }
   if (values.basePrice !== undefined) { assignments.push('base_price = ?'); params.push(values.basePrice); }
-  if (values.priceOverride !== undefined) { assignments.push('price_override = ?'); params.push(values.priceOverride); }
   if (values.versionKey !== undefined) { assignments.push('version_key = ?'); params.push(values.versionKey); }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
@@ -1414,7 +1382,6 @@ function normalizeMemberInput(input = {}, { partial = false } = {}) {
 
   if (values.portraitUrl !== undefined) result.portraitUrl = normalizeImageInput(values.portraitUrl);
   if (values.designImageUrl !== undefined) result.designImageUrl = normalizeImageInput(values.designImageUrl);
-  if (values.priceOverride !== undefined) result.priceOverride = parsePriceOverride(values.priceOverride);
   if (values.versionKey !== undefined) result.versionKey = normalizeVersionInput(values.versionKey);
   if (values.sortOrder !== undefined && values.sortOrder !== null && values.sortOrder !== '') {
     result.sortOrder = parseSortOrder(values.sortOrder);
@@ -1465,15 +1432,14 @@ async function createMember(input = {}) {
   try {
     const [result] = await getPool().execute(
       `INSERT INTO artist_members
-        (group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, version_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, version_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         groupId,
         slug,
         values.name,
         portraitUrl,
         designImageUrl,
-        values.priceOverride === undefined ? null : values.priceOverride,
         values.isActive === false ? 0 : 1,
         sortOrder,
         values.versionKey || DEFAULT_VERSION,
@@ -1507,7 +1473,6 @@ async function updateMember(id, input = {}) {
     params.push(slug);
   }
   if (values.versionKey !== undefined) { assignments.push('version_key = ?'); params.push(values.versionKey); }
-  if (values.priceOverride !== undefined) { assignments.push('price_override = ?'); params.push(values.priceOverride); }
   if (values.isActive !== undefined) { assignments.push('is_active = ?'); params.push(values.isActive ? 1 : 0); }
   if (values.sortOrder !== undefined) { assignments.push('sort_order = ?'); params.push(values.sortOrder); }
 
@@ -2061,16 +2026,8 @@ async function deletePricingOption(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Single shared product settings (global silhouette + base price)
+// Single shared product settings (base price)
 // ---------------------------------------------------------------------------
-
-function normalizeBaseModel(value) {
-  const model = cleanText(value, 20).toLowerCase();
-  if (!BASE_MODELS.includes(model)) {
-    throw new CatalogError('invalid_base_model', `baseModel must be one of: ${BASE_MODELS.join(', ')}.`);
-  }
-  return model;
-}
 
 async function getProductSettings() {
   if (!isConfigured()) {
@@ -2078,29 +2035,22 @@ async function getProductSettings() {
   }
 
   const settingsRow = await loadProductSettingsRow();
-  const baseModel = settingsRow && BASE_MODELS.includes(settingsRow.base_model)
-    ? settingsRow.base_model
-    : DEFAULT_BASE_MODEL;
-
   const rows = await queryPricingRows({ activeOnly: false });
   const baseOption = rows.find((option) => option.category === 'base') || null;
   const basePrice = baseOption ? baseOption.price : DEFAULT_BASE_PRICE;
 
   return {
-    baseModel,
-    baseLabel: BASE_MODEL_LABELS[baseModel],
     basePrice,
     baseKey: baseOption ? baseOption.key : BASE_OPTION_KEY,
     baseLabelText: baseOption ? baseOption.label : BASE_OPTION_LABEL,
     baseIsActive: baseOption ? baseOption.isActive : true,
-    baseModels: BASE_MODELS.map((model) => ({ key: model, label: BASE_MODEL_LABELS[model] })),
     updatedAt: settingsRow ? settingsRow.updated_at || null : null,
   };
 }
 
 /**
- * Updates the one global silhouette and/or the shared base price. Only the fields present in the
- * payload are written; an operator's existing price is never replaced unless they send a new one.
+ * Updates the shared base price. Only the fields present in the payload are written; an operator's
+ * existing price is never replaced unless they send a new one.
  */
 async function updateProductSettings(input = {}) {
   if (!isConfigured()) {
@@ -2108,29 +2058,18 @@ async function updateProductSettings(input = {}) {
   }
 
   const values = input && typeof input === 'object' ? input : {};
-  const hasModel = values.baseModel !== undefined;
   const hasPrice = values.basePrice !== undefined;
   const hasLabel = values.label !== undefined;
 
-  if (!hasModel && !hasPrice && !hasLabel) {
-    throw new CatalogError('no_changes', 'Provide a baseModel or basePrice to update.');
+  if (!hasPrice && !hasLabel) {
+    throw new CatalogError('no_changes', 'Provide a basePrice to update.');
   }
 
-  const baseModel = hasModel ? normalizeBaseModel(values.baseModel) : null;
   const basePrice = hasPrice ? parsePrice(values.basePrice, 'basePrice') : null;
   const label = hasLabel ? cleanText(values.label, MAX_LABEL_LENGTH) : null;
   if (hasLabel && !label) throw new CatalogError('invalid_label', 'Base label cannot be empty.');
 
   const pool = getPool();
-
-  if (baseModel) {
-    // Avoid VALUES() in ON DUPLICATE KEY (deprecated on MySQL 8.4); update, then insert if absent.
-    await pool.execute('UPDATE product_settings SET base_model = ? WHERE id = 1', [baseModel]);
-    const [settingsRows] = await pool.execute('SELECT id FROM product_settings WHERE id = 1 LIMIT 1');
-    if (!settingsRows.length) {
-      await pool.execute('INSERT INTO product_settings (id, base_model) VALUES (1, ?)', [baseModel]);
-    }
-  }
 
   if (hasPrice || hasLabel) {
     const [rows] = await pool.execute(
@@ -2463,9 +2402,7 @@ module.exports = {
   productsForGroups,
   groupPricingOptions,
   productFromOptions,
-  DEFAULT_BASE_MODEL,
   DEFAULT_BASE_PRICE,
-  BASE_MODELS,
   MAX_NAME_LENGTH,
   MAX_SLUG_LENGTH,
   MAX_TAGLINE_LENGTH,

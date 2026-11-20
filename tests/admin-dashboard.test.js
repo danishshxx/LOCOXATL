@@ -32,8 +32,8 @@ test('admin dashboard markup and client scripts are present', () => {
   assert.match(html, /id="artistGroupForm"/, 'must contain the artist group editor');
   assert.match(html, /id="artistGroupModal"/, 'the artist group editor must be a dialog');
   assert.match(html, /id="productSettingsForm"/, 'must contain Product Setup');
-  assert.match(html, /id="baseModelSelect"/, 'Product Setup must choose the global silhouette');
   assert.match(html, /id="basePriceInput"/, 'Product Setup must set the shared base price');
+  assert.doesNotMatch(html, /id="baseModelSelect"/, 'the legacy silhouette selector is gone');
   assert.doesNotMatch(html, /id="catalogGroupsBody"/, 'the duplicate Catalog collections table is removed');
   assert.doesNotMatch(html, /id="productModalBackdrop"/, 'Product Designs management is removed');
 

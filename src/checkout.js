@@ -206,7 +206,6 @@
         version: order.version || undefined,
         fulfillmentMethod,
         paymentMethod: order.paymentMethod || undefined,
-        baseModel: order.baseModel || order.configuration?.base?.id,
         configuration: {
           base: config.base,
           addons: config.addons,

@@ -30,7 +30,8 @@ test('the 3D viewer mounts into the existing preview panel without new layout se
   for (const marker of ['data-addon="pearl"', 'data-addon="star"', 'id="initialToggle"', 'data-clasp="silver"', 'data-clasp="black"', 'id="continueToCheckout"']) {
     assert.ok(studioHtml.includes(marker), `${marker} control must stay in place`);
   }
-  assert.match(studioScript, /product\.baseModel|activeProduct\.baseModel/, 'the fixed global silhouette drives the studio');
+  assert.match(studioScript, /activeMember|activeProduct/, 'the studio renders the selected design row');
+  assert.doesNotMatch(studioScript, /baseModel|baseNames|'Heart'|'Ribbon'/, 'no silhouette keys remain in the studio');
   assert.match(studioScript, /designImageUrl/, 'the member artwork is applied to the charm face');
 });
 

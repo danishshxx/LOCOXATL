@@ -72,9 +72,9 @@ test('a tampered client total is replaced by the live total', () => {
   assert.equal(honest.priceAdjusted, false);
 });
 
-test('swapping the silhouette reprices to that design inside the same collection', () => {
+test('a design is resolved by product id inside the same collection', () => {
   const validated = validateOrderPayload(order({
-    product: { slug: 'blackpink-cloud-heart' },
+    product: { id: 11 },
     configuration: { base: { id: 'bow' }, addons: [], initial: '', clasp: { id: 'silver' } },
     total: 59500,
   }), { catalog: liveCatalog });
@@ -83,6 +83,17 @@ test('swapping the silhouette reprices to that design inside the same collection
   assert.equal(validated.productName, 'Soft Ribbon — BLACKPINK');
   assert.equal(validated.quote.total, 59500, '51.000 ribbon + 8.500 clasp');
   assert.equal(validated.priceAdjusted, false);
+});
+
+test('a stale silhouette key never changes which design is priced', () => {
+  const validated = validateOrderPayload(order({
+    product: { slug: 'blackpink-cloud-heart' },
+    configuration: { base: { id: 'bow' }, addons: [], initial: '', clasp: { id: 'silver' } },
+    total: 55500,
+  }), { catalog: liveCatalog });
+
+  assert.equal(validated.product.slug, 'blackpink-cloud-heart');
+  assert.equal(validated.quote.total, 55500, 'the named design is priced, not the base key');
 });
 
 test('a design from another collection is rejected', () => {

@@ -82,30 +82,36 @@
   // Customer verification message — shared template with the success page (src/whatsapp.js).
   const message = whatsapp.buildVerificationMessage(order.orderNumber);
   const whatsappLink = $('#whatsappConfirm');
-  whatsappLink.href = whatsapp.buildChatUrl('', message);
-
-  // Prefer the configured business number so the confirmation lands in the right chat. The
-  // generic share link above stays as the fallback when the number is not configured.
   const whatsappStatus = $('#paymentWhatsAppStatus');
+
+  // The confirmation has to land in the shop chat, so the link is only armed once the configured
+  // number is known. A generic share link is never used here.
   const publicConfig = window.locoxatlPublicConfig || fetch('/api/public-config').then((response) => {
     if (!response.ok) throw new Error(`Public configuration request failed (${response.status}).`);
     return response.json();
   });
 
-  publicConfig.then(({ whatsappNumber }) => {
-    if (!whatsappNumber) {
-      if (whatsappStatus) {
-        whatsappStatus.textContent = 'WhatsApp is not configured yet. The button will ask you to choose a chat — you can also copy your order reference.';
-        whatsappStatus.hidden = false;
-      }
-      return;
-    }
-    whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
-  }).catch(() => {
+  function disableWhatsAppLink(messageText) {
+    whatsappLink.removeAttribute('href');
+    whatsappLink.setAttribute('aria-disabled', 'true');
     if (whatsappStatus) {
-      whatsappStatus.textContent = 'WhatsApp could not be configured. Use the button to choose a chat manually.';
+      whatsappStatus.textContent = messageText;
       whatsappStatus.hidden = false;
     }
+  }
+
+  publicConfig.then((config) => {
+    const url = config && config.whatsappNumber
+      ? whatsapp.buildDirectChatUrl(config.whatsappNumber, message)
+      : '';
+    if (!url) {
+      disableWhatsAppLink('WhatsApp is not configured yet. Copy your order reference and message our CS.');
+      return;
+    }
+    whatsappLink.href = url;
+    whatsappLink.removeAttribute('aria-disabled');
+  }).catch(() => {
+    disableWhatsAppLink('WhatsApp could not be configured. Copy your order reference and message our CS.');
   });
 
   $('#finishPaymentDemo').addEventListener('click', async () => {

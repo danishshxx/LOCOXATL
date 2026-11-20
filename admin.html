@@ -461,7 +461,7 @@
         <div>
           <span class="eyebrow">ONE KEYCHAIN · SHARED SETTINGS</span>
           <h1>Product Setup</h1>
-          <p class="accounting-intro">LOCOXATL sells one keychain. Choose the single base silhouette and shared base price, then price the universal add-ons, initial and clasp. Every member design uses these settings.</p>
+          <p class="accounting-intro">LOCOXATL sells one keychain. Set the shared base price, then price the universal add-ons, initial and clasp. Every member design uses these settings.</p>
         </div>
         <div class="heading-actions">
           <button type="button" class="button button-outline button-small" id="refreshProductSettingsBtn">Refresh</button>
@@ -471,13 +471,6 @@
       <div class="admin-table-card product-settings-card">
         <div class="card-heading"><span>SHARED BASE PRODUCT</span><span id="productSettingsNote" role="status"></span></div>
         <form id="productSettingsForm" class="product-settings-form">
-          <label>Base silhouette
-            <select id="baseModelSelect" required>
-              <option value="heart">Heart</option>
-              <option value="star">Star</option>
-              <option value="bow">Ribbon</option>
-            </select>
-          </label>
           <label>Base price (IDR)
             <input type="number" id="basePriceInput" min="0" step="1000" inputmode="numeric" required placeholder="45000" />
           </label>
@@ -485,7 +478,7 @@
             <button type="submit" class="button button-dark button-small" id="saveProductSettingsBtn">Save base product</button>
           </div>
         </form>
-        <p class="catalog-source-note">Changing the silhouette applies to every member immediately; customers cannot switch it. Member artwork is managed in Artists &amp; Groups → Members.</p>
+        <p class="catalog-source-note">The base price applies to every design immediately. Customers choose a design by product or member, so there is no separate shape to configure. Member artwork is managed in Artists &amp; Groups → Members.</p>
       </div>
 
       <div class="admin-table-card">
@@ -970,7 +963,6 @@
           </select>
         </label>
         <label>Slug <input type="text" id="artistMemberSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
-        <label>Product price override (IDR) <input type="number" id="artistMemberPriceOverride" min="0" step="1000" inputmode="numeric" placeholder="Leave blank to use the global base price" /></label>
         <div class="catalog-image-field">
           <span class="catalog-field-label">Portrait image</span>
           <div class="catalog-image-preview" id="artistPortraitPreview" hidden>

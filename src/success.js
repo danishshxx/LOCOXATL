@@ -16,10 +16,8 @@
   const copyButton = $('copyOrderMessage');
   const actionStatus = $('successActionStatus');
 
-  // Always start from an absolute wa.me URL, so the button can never navigate back into the
-  // storefront when the configuration request is slow or unavailable.
-  whatsappLink.href = whatsapp.buildChatUrl('', message);
-  whatsappLink.removeAttribute('aria-disabled');
+  // The confirmation has to land in the shop chat, so the button is only armed once the
+  // configured number is known; it is never pointed at the generic share sheet.
   whatsappLink.removeAttribute('tabindex');
 
   const publicConfig = window.locoxatlPublicConfig || fetch('/api/public-config').then((response) => {
@@ -27,14 +25,24 @@
     return response.json();
   });
 
-  publicConfig.then(({ whatsappNumber }) => {
-    if (whatsappNumber) {
-      whatsappLink.href = whatsapp.buildChatUrl(whatsappNumber, message);
+  function disableWhatsAppLink(messageText) {
+    whatsappLink.removeAttribute('href');
+    whatsappLink.setAttribute('aria-disabled', 'true');
+    actionStatus.textContent = messageText;
+  }
+
+  publicConfig.then((config) => {
+    const url = config && config.whatsappNumber
+      ? whatsapp.buildDirectChatUrl(config.whatsappNumber, message)
+      : '';
+    if (!url) {
+      disableWhatsAppLink('WhatsApp is not configured yet. Copy your order message and send it to our CS.');
       return;
     }
-    actionStatus.textContent = 'WhatsApp is not configured yet. The button will ask you to choose a chat.';
+    whatsappLink.href = url;
+    whatsappLink.removeAttribute('aria-disabled');
   }).catch(() => {
-    actionStatus.textContent = 'WhatsApp could not be configured. The button will ask you to choose a chat.';
+    disableWhatsAppLink('WhatsApp could not be configured. Copy your order message and send it to our CS.');
   });
 
   copyButton.addEventListener('click', async () => {

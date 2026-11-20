@@ -245,9 +245,18 @@ test('no WhatsApp entry point can navigate back into the storefront', () => {
     const html = read(page);
     const anchors = html.match(/<a[^>]*>[^<]*WhatsApp[^<]*<\/a>/gi) || [];
     for (const anchor of anchors) {
-      assert.match(anchor, /href="https:\/\/wa\.me\//, `${page}: ${anchor}`);
+      // The href is written by the page script once the configured number is known, so the static
+      // markup either has no href or already points at wa.me.
+      if (/href="/.test(anchor)) assert.match(anchor, /href="https:\/\/wa\.me\//, `${page}: ${anchor}`);
     }
     assert.doesNotMatch(html, /id="(?:whatsappConfirm|successWhatsApp|customDesignWaLink|shopeeCsLink)"[^>]*href="#"/);
+    assert.doesNotMatch(html, /wa\.me\/\?text=/, `${page} must not ship the generic share link`);
+  }
+
+  // Storefront scripts only ever write a direct chat URL with the configured number.
+  for (const script of ['src/studio.js', 'src/payment.js', 'src/success.js']) {
+    assert.match(read(script), /buildDirectChatUrl\(/, `${script} must use the direct chat helper`);
+    assert.doesNotMatch(read(script), /buildChatUrl\(\s*''/, `${script} must not fall back to the share sheet`);
   }
 
   // The shared footer only ever writes a wa.me URL.

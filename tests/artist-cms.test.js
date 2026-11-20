@@ -24,8 +24,8 @@ const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8
 const pngDataUrl = () => `data:image/png;base64,${PNG_BASE64}`;
 
 const GROUP_FIELDS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
-const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, price_override, image_url, is_active, sort_order, created_at, updated_at, version_key';
-const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, created_at, updated_at, version_key';
+const PRODUCT_FIELDS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_FIELDS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_FIELDS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 const groups = [
@@ -148,7 +148,7 @@ async function execute(sql, params = []) {
     return [[{ next_order: rows.reduce((max, row) => Math.max(max, row.sort_order), -1) + 1 }]];
   }
   if (/^INSERT INTO artist_members/i.test(query)) {
-    const [groupId, slug, name, portraitUrl, designImageUrl, priceOverride, isActive, sortOrder] = params;
+    const [groupId, slug, name, portraitUrl, designImageUrl, isActive, sortOrder] = params;
     if (members.some((row) => row.group_id === Number(groupId) && row.slug === slug)) {
       const error = new Error('Duplicate entry');
       error.code = 'ER_DUP_ENTRY';
@@ -161,7 +161,6 @@ async function execute(sql, params = []) {
       name,
       portrait_url: portraitUrl,
       design_image_url: designImageUrl,
-      price_override: priceOverride == null ? null : Number(priceOverride),
       is_active: Number(isActive),
       sort_order: Number(sortOrder),
     };
@@ -209,7 +208,7 @@ async function execute(sql, params = []) {
   if (new RegExp(`^SELECT ${PRICING_FIELDS} FROM pricing_options`, 'i').test(query)) {
     return [[]];
   }
-  if (/^SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
+  if (/^SELECT id, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
     return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
   }
 

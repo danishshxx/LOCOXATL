@@ -75,7 +75,8 @@ test('checkout advances to payment and payment page provides QRIS and WhatsApp c
   assert.match(checkout, /id="checkoutForm"/);
   assert.match(checkoutScript, /payment\.html/);
   assert.match(payment, /QRIS/i);
-  assert.match(payment, /wa\.me/);
+  assert.match(payment, /id="whatsappConfirm"/);
+  assert.match(payment, /src\/whatsapp\.js/, 'the page arms its chat link from the shared helper');
   assert.match(paymentScript, /order-success\.html/);
 });
 

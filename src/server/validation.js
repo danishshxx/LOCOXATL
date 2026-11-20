@@ -7,7 +7,6 @@ const serverCatalog = require('./catalog.js');
 // used here to recompute the amount that gets persisted, against the live MySQL catalogue when
 // one is available.
 
-const ALLOWED_BASES = new Set(['heart', 'star', 'bow']);
 const ALLOWED_CLASPS = new Set(options.clasps.map((clasp) => clasp.id));
 const ALLOWED_ADDONS = new Set(options.addons.map((addon) => addon.id));
 const MAX_QUANTITY = 20;
@@ -194,8 +193,9 @@ function normalizeCustomer(input = {}, errors) {
 function normalizeConfiguration(input = {}, errors) {
   const configuration = input && typeof input === 'object' ? input : {};
 
-  const baseId = cleanText(configuration.base?.id, 20).toLowerCase();
-  if (baseId && !ALLOWED_BASES.has(baseId)) errors.base = 'Unknown base charm.';
+  // The selected design is the base now; the field is kept only so stored snapshots keep the
+  // reference they were created with. Resolution never depends on it.
+  const baseId = cleanText(configuration.base?.id, 64).toLowerCase();
 
   // A clasp is only assumed for older clients that send addons/clasp and no selections map;
   // with a selections map the absence of a clasp means the customer was offered none.
@@ -254,6 +254,19 @@ function sanitizeTransform(transform) {
   };
 }
 
+/**
+ * Resolves a design from the active catalogue by id first and slug second, so a client that sends
+ * either one lands on the same row. `extra` carries the collection and visibility checks.
+ */
+function findDesign(list, { id, slug }, extra = () => true) {
+  const wanted = Number(id);
+  if (Number.isInteger(wanted) && wanted > 0) {
+    const byId = list.find((item) => Number(item.id) === wanted && extra(item));
+    if (byId) return byId;
+  }
+  return slug ? list.find((item) => item.slug === slug && extra(item)) || null : null;
+}
+
 function catalogProducts(catalogData) {
   return catalogData && Array.isArray(catalogData.products)
     ? catalogData.products
@@ -295,20 +308,22 @@ function validateOrderPayload(payload = {}, context = {}) {
   const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
   const configuration = normalizeConfiguration(payload.order?.configuration || payload.configuration || {}, errors);
 
+  const productId = Number(payload.order?.product?.id ?? payload.productId);
   const productSlug = cleanText(payload.order?.product?.slug || payload.productSlug, 80);
+  const memberId = Number(payload.order?.member?.id ?? payload.memberId);
   const memberSlug = cleanText(payload.order?.member?.slug || payload.memberSlug, 64);
   const artistSlug = cleanText(payload.order?.artist?.slug, 60);
-  // Member-based designs are the new path; a product slug keeps older clients working unchanged.
-  const memberMode = Boolean(memberSlug);
+  // Member-based designs are the new path; a product id or slug keeps older clients working.
+  const memberMode = Boolean(memberSlug) || (Number.isInteger(memberId) && memberId > 0);
 
   let group = artistSlug ? groups.find((item) => item.slug === artistSlug) || null : null;
   let member = null;
   let product = null;
 
   if (memberMode) {
-    member = members.find((item) => item.slug === memberSlug
-      && (!artistSlug || item.groupSlug === artistSlug)
-      && item.isActive !== false) || null;
+    member = findDesign(members, { id: memberId, slug: memberSlug }, (item) => (
+      (!artistSlug || item.groupSlug === artistSlug) && item.isActive !== false
+    ));
 
     if (!member) {
       errors.member_slug = strict ? 'That member design is not available right now.' : 'Unknown member design.';
@@ -322,18 +337,8 @@ function validateOrderPayload(payload = {}, context = {}) {
     if (strict && member && group && member.groupSlug && member.groupSlug !== group.slug) {
       errors.member_slug = 'That member does not belong to the selected collection.';
     }
-
-    // The base silhouette is one global setting; a member design may not switch it.
-    const baseModel = productSettings && productSettings.baseModel
-      ? String(productSettings.baseModel).toLowerCase()
-      : 'heart';
-    if (!configuration.base) {
-      configuration.base = baseModel;
-    } else if (configuration.base !== baseModel) {
-      errors.base = 'The base shape is fixed for every design.';
-    }
   } else {
-    product = productSlug ? products.find((item) => item.slug === productSlug) || null : null;
+    product = findDesign(products, { id: productId, slug: productSlug });
 
     if (!product) {
       errors.product_slug = strict ? 'That design is not available right now.' : 'Unknown product.';
@@ -421,14 +426,12 @@ function validateOrderPayload(payload = {}, context = {}) {
   let artistName;
 
   if (memberMode) {
-    // The global base price is the fallback; a design-level override wins when one is set.
-    const globalBasePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
+    // One shared base price from pricing_options; member artwork never creates a product variant.
+    basePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
       ? Number(productSettings.basePrice)
       : (pricingTable && pricingTable.base && Number.isFinite(Number(pricingTable.base.price))
         ? Number(pricingTable.base.price)
         : 45000);
-    const memberOverride = member ? member.priceOverride : null;
-    basePrice = memberOverride == null ? globalBasePrice : Number(memberOverride);
     artistName = group ? group.name : null;
     memberInfo = {
       slug: member.slug,
@@ -437,17 +440,9 @@ function validateOrderPayload(payload = {}, context = {}) {
       designImageUrl: member.designImageUrl || null,
     };
   } else {
-    // Swapping the silhouette in the studio moves the price to that design, not the page the
-    // journey started from. Designs are matched inside the same collection.
-    const baseSwap = configuration.base && group
-      ? products.find((item) => item.groupSlug === group.slug && item.baseId === configuration.base) || null
-      : null;
-    pricedProduct = baseSwap || product;
-    // A design-level override replaces the global base price; without one, `price` already holds
-    // the resolved global base price.
-    basePrice = pricedProduct.priceOverride == null
-      ? Number(pricedProduct.price)
-      : Number(pricedProduct.priceOverride);
+    // The order names one design by id or slug; that row is what gets priced.
+    pricedProduct = product;
+    basePrice = pricedProduct.price;
     artistName = group ? group.name : (pricedProduct.groupName || null);
   }
 
@@ -532,7 +527,6 @@ module.exports = {
   validateOrderPayload,
   assertArtistAvailable,
   ValidationError,
-  ALLOWED_BASES,
   ALLOWED_CLASPS,
   ALLOWED_ADDONS,
   MAX_QUANTITY,

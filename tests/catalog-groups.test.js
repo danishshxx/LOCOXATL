@@ -46,8 +46,8 @@ const pricing = [
 ];
 
 const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
-const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, price_override, image_url, is_active, sort_order, created_at, updated_at, version_key';
-const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, created_at, updated_at, version_key';
+const PRODUCT_COLUMNS = 'id, group_id, slug, name, template_key, description, base_price, image_url, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 const PRICING_COLUMNS = 'id, category, option_key, label, price, is_active, sort_order, updated_at';
 
 function withTimestamps(row) {
@@ -108,7 +108,7 @@ async function execute(sql, params = []) {
   if (new RegExp(`^SELECT ${MEMBER_COLUMNS} FROM artist_members`, 'i').test(query)) {
     return [[]];
   }
-  if (/^SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
+  if (/^SELECT id, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
     return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
   }
   if (new RegExp(`^SELECT ${PRICING_COLUMNS} FROM pricing_options WHERE is_active = 1 ORDER BY`, 'i').test(query)) {

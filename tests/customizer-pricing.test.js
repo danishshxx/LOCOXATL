@@ -75,18 +75,18 @@ test('a tampered browser total is corrected instead of trusted', () => {
   assert.equal(validated.priceAdjusted, true);
 });
 
-test('switching the base silhouette in the studio also switches the base price on the server', () => {
+test('the server prices the design named in the order, not a silhouette key', () => {
   const validated = validateOrderPayload({
     customer: { name: 'Ayu', phone: '081234567890', address: 'Jl. Merdeka No. 12, Bandung' },
     order: {
       artist: { slug: 'bts' },
-      product: { slug: 'bts-cloud-heart' },
+      product: { slug: 'bts-soft-ribbon' },
       configuration: { base: { id: 'bow' }, addons: [], initial: '', clasp: { id: 'silver' } },
       quantity: 1,
       total: 56000,
     },
   });
-  assert.equal(validated.quote.total, 56000, 'ribbon base 49.000 + silver clasp 7.000');
+  assert.equal(validated.quote.total, 56000, 'ribbon design 49.000 + silver clasp 7.000');
   assert.equal(validated.priceAdjusted, false);
   assert.equal(validated.productName, 'Soft Ribbon — BTS');
 });

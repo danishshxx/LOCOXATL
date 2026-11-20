@@ -35,7 +35,7 @@ const groups = [
 ];
 
 const COLUMNS = 'id, slug, name, tagline, eyebrow, description, image_url, hero_image_url, cover_focal, hero_focal, is_active, sort_order, created_at, updated_at, versions_json, has_versions, is_custom_design';
-const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, price_override, is_active, sort_order, created_at, updated_at, version_key';
+const MEMBER_COLUMNS = 'id, group_id, slug, name, portrait_url, design_image_url, is_active, sort_order, created_at, updated_at, version_key';
 
 async function execute(sql, params = []) {
   const query = sql.replace(/\s+/g, ' ').trim();
@@ -72,7 +72,7 @@ async function execute(sql, params = []) {
   }
   // The design, member and price tables exist but are empty in this fixture.
   if (new RegExp(`^SELECT ${MEMBER_COLUMNS} FROM artist_members`, 'i').test(query)) return [[]];
-  if (/^SELECT id, base_model, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
+  if (/^SELECT id, updated_at FROM product_settings WHERE id = 1 LIMIT 1$/i.test(query)) {
     return [[{ id: 1, base_model: 'heart', updated_at: '2026-11-17 09:00:00' }]];
   }
   if (/^SELECT .* FROM catalog_products/i.test(query)) return [[]];

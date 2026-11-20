@@ -100,7 +100,7 @@ test('both storefront pages use the shared template instead of their own copy', 
 
   for (const [name, source] of pages) {
     assert.match(source, /buildVerificationMessage/, `${name} must use the shared template`);
-    assert.match(source, /buildChatUrl/, `${name} must use the shared chat-link builder`);
+    assert.match(source, /buildDirectChatUrl/, `${name} must use the direct chat-link builder`);
     assert.doesNotMatch(source, /Halo LOCOXATL/, `${name} must not keep the old message body`);
   }
 
