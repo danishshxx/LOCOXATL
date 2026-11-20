@@ -188,8 +188,7 @@
         if (Array.isArray(payload.optionCategories)) {
           activeCategories = payload.optionCategories;
         }
-        applyStaticStepVisibility();
-        renderDynamicCategories();
+        renderOptionSteps();
         syncSelections();
         activeGroup = group;
         applyGroupNotice();
@@ -215,9 +214,7 @@
         if (live !== null) return live;
       }
       const fromOptions = options && options.getAddon(id);
-      if (fromOptions) return fromOptions.price;
-      const input = $(`[data-addon="${id}"]`);
-      return input ? Number(input.dataset.price) : 0;
+      return fromOptions ? fromOptions.price : 0;
     }
 
     function claspPrice(id) {
@@ -226,9 +223,7 @@
         if (live !== null) return live;
       }
       const fromOptions = options && options.getClasp(id);
-      if (fromOptions) return fromOptions.price;
-      const button = $(`.clasp-choice[data-clasp="${id}"]`);
-      return button ? Number(button.dataset.price) : 0;
+      return fromOptions ? fromOptions.price : 0;
     }
 
     function addonName(id) {
@@ -237,31 +232,18 @@
         if (live && live.label) return live.label;
       }
       const fromOptions = options && options.getAddon(id);
-      if (fromOptions) return fromOptions.name;
-      return { pearl: 'Pearl drop', star: 'Mini star', initial: 'Your initial' }[id] || id;
+      return fromOptions ? fromOptions.name : id;
     }
 
     function refreshPriceState() {
       if (state.clasp) state.clasp = { ...state.clasp, price: claspPrice(state.clasp.id) };
       state.addons = state.addons.map((addon) => ({ ...addon, name: addonName(addon.id), price: addonPrice(addon.id) }));
-
-      $$('.addon-option input').forEach((input) => {
-        if (!input.dataset.addon) return; // dashboard categories price their own rows
-        const option = input.closest('.addon-option');
-        const label = option ? option.querySelector('small') : null;
-        if (label) label.textContent = money(addonPrice(input.dataset.addon));
-      });
-      $$('.clasp-choice').forEach((button) => {
-        if (!button.dataset.clasp) return; // same: dynamic single-choice rows are not clasps
-        const label = button.querySelector('small');
-        if (label) label.textContent = `+${money(claspPrice(button.dataset.clasp))}`;
-      });
     }
 
     // ------------------------------------------------------------- option groups
-    // The dashboard owns the categories. The two built-in ones keep their static markup because
-    // the personalization field lives there; every other active category renders below.
-    const STATIC_CATEGORIES = ['addon', 'clasp'];
+    // The dashboard owns every category and item. Nothing about them is hardcoded here: the two
+    // slugs below only name the fields the order API already carries separately.
+    const ORDER_FIELDS = ['addon', 'clasp'];
     let activeCategories = (options && options.optionCategories) || [];
     let activeItems = bundledOptionItems();
 
@@ -283,124 +265,71 @@
       return activeItems.find((item) => item.key === key) || null;
     }
 
-    function categoryBySlug(slug) {
-      return activeCategories.find((row) => row && String(row.slug).toLowerCase() === slug) || null;
-    }
-
     function categoryItems(slug) {
       return activeItems.filter((item) => item && item.category === slug);
     }
 
-    /** A category is offered when the dashboard left it active and it still has an active item. */
-    function categoryOffered(slug) {
-      const category = categoryBySlug(slug);
-      if (!category || category.isActive === false || category.isLive === false) return false;
-      return categoryItems(slug).length > 0;
+    /** A category is only rendered while the dashboard keeps it live and it still has a live item. */
+    function liveCategoriesWithItems() {
+      return activeCategories.filter((category) => category
+        && category.isActive !== false
+        && category.isLive !== false
+        && categoryItems(category.slug).length > 0);
+    }
+
+    const isPersonalization = (item) => item.key === 'initial' || item.personalization === true;
+
+    function optionRowMarkup(category, item, checked) {
+      const visual = isPersonalization(item)
+        ? `<span class="addon-visual initial-visual">${escapeHtml(String(item.label).charAt(0).toUpperCase())}</span>`
+        : '<span class="addon-visual"><span class="clasp-swatch"></span></span>';
+      return `<label class="addon-option">${visual}<span class="addon-name">${escapeHtml(item.label)}<small>${money(item.price)}</small></span><input type="checkbox" data-option-category="${escapeHtml(category.slug)}" data-option-key="${escapeHtml(item.key)}"${checked ? ' checked' : ''} /><i class="custom-check"></i></label>`;
+    }
+
+    function optionChoiceMarkup(category, item, selected) {
+      return `<button type="button" class="clasp-choice${selected ? ' selected' : ''}" data-option-category="${escapeHtml(category.slug)}" data-option-key="${escapeHtml(item.key)}" aria-pressed="${selected}"><span class="clasp-swatch"></span>${escapeHtml(item.label)} <small>${money(item.price)}</small></button>`;
+    }
+
+    function letterMarkup(selected) {
+      return `<input class="initial-input" data-initial-input maxlength="1" placeholder="Enter one letter" aria-label="Your initial" value="${escapeHtml(state.initial)}"${selected ? '' : ' disabled'} />`;
     }
 
     /**
-     * The addon and clasp steps are static markup, so the dashboard cannot delete them. Hiding
-     * them here keeps a deactivated category off the page and out of the total.
+     * Every option section is built from the payload. A category the dashboard switched off, or one
+     * with no live item left, is simply not rendered, so no row can outlive its database flag.
      */
-    function applyStaticStepVisibility() {
-      const addonStep = $('#addonStep');
-      const claspStep = $('#claspStep');
-
-      // Both static steps follow the same rule as the rendered ones: no live category, no step.
-      if (claspStep) claspStep.hidden = !categoryOffered('clasp');
-
-      if (addonStep) {
-        addonStep.hidden = !categoryOffered('addon');
-        // A row whose option the dashboard switched off leaves the list; the rest of the step stays.
-        $$('.addon-option', addonStep).forEach((option) => {
-          const input = option.querySelector('input[data-addon]');
-          if (!input) return;
-          const offered = Boolean(itemByKey(input.dataset.addon));
-          option.hidden = !offered;
-          if (!offered && input.checked) {
-            input.checked = false;
-            if (input.dataset.addon === 'initial') {
-              state.initial = '';
-              const initialText = $('#initialText');
-              if (initialText) {
-                initialText.value = '';
-                initialText.disabled = true;
-              }
-            }
-          }
-        });
-      }
-
-      if (addonStep && addonStep.hidden) {
-        $$('.addon-option input', addonStep).forEach((input) => { input.checked = false; });
-        state.initial = '';
-        const initialText = $('#initialText');
-        if (initialText) {
-          initialText.value = '';
-          initialText.disabled = true;
-        }
-      }
-
-      // The letter box belongs to the initial option: no live option, no box.
-      const letterBox = $('#initialText');
-      if (letterBox) {
-        letterBox.hidden = !itemByKey('initial');
-        if (letterBox.hidden) {
-          letterBox.value = '';
-          letterBox.disabled = true;
-          state.initial = '';
-        }
-      }
-
-      if (claspStep && !claspStep.hidden) {
-        const buttons = $$('.clasp-choice[data-clasp]', claspStep);
-        const offered = buttons.filter((button) => Boolean(itemByKey(button.dataset.clasp)));
-        // A clasp the dashboard switched off is not shown and cannot stay selected.
-        buttons.forEach((button) => {
-          const live = offered.includes(button);
-          button.hidden = !live;
-          if (!live) button.classList.remove('selected');
-        });
-        // The default clasp has to be one the dashboard still offers.
-        if (offered.length && !offered.some((button) => button.classList.contains('selected'))) {
-          offered[0].classList.add('selected');
-        }
-      }
-    }
-
-    function renderDynamicCategories() {
+    function renderOptionSteps() {
       const container = $('#dynamicOptionSteps');
       if (!container) return;
 
-      const sections = activeCategories.filter((category) => category
-        && category.isActive !== false
-        && category.isLive !== false
-        && !STATIC_CATEGORIES.includes(category.slug));
-
-      container.innerHTML = sections.map((category) => {
-        const items = activeItems.filter((item) => item.category === category.slug);
-        if (!items.length) return '';
-        const selected = state.selections[category.slug] || [];
+      const sections = liveCategoriesWithItems();
+      container.innerHTML = sections.map((category, index) => {
+        const items = categoryItems(category.slug);
         const single = category.selectionMode === 'single';
+        const selected = (state.selections[category.slug] || []).slice();
+        // A required single-choice category starts on its first live item.
+        if (single && category.isRequired && !selected.length) selected.push(items[0].key);
 
         const controls = single
-          ? `<div class="clasp-choices">${items.map((item) => `<button type="button" class="clasp-choice${selected.includes(item.key) ? ' selected' : ''}" data-option-category="${escapeHtml(category.slug)}" data-option-key="${escapeHtml(item.key)}" aria-pressed="${selected.includes(item.key)}">${escapeHtml(item.label)} <small>${money(item.price)}</small></button>`).join('')}</div>`
-          : `<div class="addon-list">${items.map((item) => `<label class="addon-option"><span class="addon-name">${escapeHtml(item.label)}<small>${money(item.price)}</small></span><input type="checkbox" data-option-category="${escapeHtml(category.slug)}" data-option-key="${escapeHtml(item.key)}" ${selected.includes(item.key) ? 'checked' : ''} /><i class="custom-check"></i></label>`).join('')}</div>`;
-
+          ? `<div class="clasp-choices">${items.map((item) => optionChoiceMarkup(category, item, selected.includes(item.key))).join('')}</div>`
+          : `<div class="addon-list">${items.map((item) => optionRowMarkup(category, item, selected.includes(item.key))).join('')}</div>`;
+        const personalization = items.find(isPersonalization);
+        const letter = personalization ? letterMarkup(selected.includes(personalization.key)) : '';
         const hint = single ? (category.isRequired ? 'Choose one.' : 'Optional.') : 'Choose any that fit.';
-        return `<div class="builder-step"><div class="step-heading"><div><h3>${escapeHtml(category.name)}</h3><p>${hint}</p></div></div>${controls}</div>`;
+
+        return `<div class="builder-step" data-option-step="${escapeHtml(category.slug)}"><div class="step-heading"><span class="step-index">${String(index + 1).padStart(2, '0')}</span><div><h3>${escapeHtml(category.name)}</h3><p>${escapeHtml(hint)}</p></div></div>${controls}${letter}</div>`;
       }).join('');
+
+      const fulfillmentIndex = $('#fulfillmentStep .step-index');
+      if (fulfillmentIndex) fulfillmentIndex.textContent = String(sections.length + 1).padStart(2, '0');
     }
 
-    /** Mirrors the DOM (static markup plus rendered categories) into state.selections. */
+    /** Mirrors the rendered option controls into state.selections. */
     function syncSelections() {
       const next = {};
-      $$('[data-option-category], .addon-option input[data-addon], .clasp-choice[data-clasp]').forEach((element) => {
-        // A step the dashboard switched off is hidden; whatever it still holds is not a choice.
-        const step = element.closest ? element.closest('.builder-step') : null;
-        if (step && step.hidden) return;
-        const category = element.dataset.optionCategory || (element.dataset.addon ? 'addon' : (element.dataset.clasp ? 'clasp' : ''));
-        const key = element.dataset.optionKey || element.dataset.addon || element.dataset.clasp;
+      $$('[data-option-category]').forEach((element) => {
+        const category = element.dataset.optionCategory;
+        const key = element.dataset.optionKey;
         if (!category || !key) return;
         const on = element.type === 'checkbox' ? element.checked : element.classList.contains('selected');
         if (!next[category]) next[category] = [];
@@ -408,17 +337,17 @@
       });
 
       state.selections = next;
-      state.addons = (next.addon || []).map((key) => ({
-        id: key,
-        name: itemByKey(key) ? itemByKey(key).label : addonName(key),
-        price: itemByKey(key) ? itemByKey(key).price : addonPrice(key),
-      }));
+      state.addons = (next.addon || []).map((key) => {
+        const item = itemByKey(key);
+        return { id: key, name: item ? item.label : addonName(key), price: item ? item.price : addonPrice(key) };
+      });
       // No clasp chosen means no clasp: the dashboard can ship a catalogue without that category.
       const claspKey = (next.clasp || [])[0] || '';
       const claspItem = claspKey ? itemByKey(claspKey) : null;
       state.clasp = claspKey
         ? { id: claspKey, name: claspItem ? claspItem.label : 'Clasp', price: claspItem ? claspItem.price : claspPrice(claspKey) }
         : null;
+      if (!(next.addon || []).includes('initial')) state.initial = '';
     }
 
     /** Shows every option the bundle covers as Rp 0 and renames its price label. */
@@ -535,7 +464,7 @@
       if (state.initial) parts.push(`Initial ${state.initial}`);
       if (state.clasp) parts.push(state.clasp.name);
       Object.entries(state.selections)
-        .filter(([slug]) => !STATIC_CATEGORIES.includes(slug))
+        .filter(([slug]) => !ORDER_FIELDS.includes(slug))
         .forEach(([, keys]) => keys.forEach((key) => {
           const item = itemByKey(key);
           if (item) parts.push(item.label);
@@ -693,13 +622,10 @@
     }
 
     function viewerState() {
-      const addons = state.addons.map((item) => item.id);
-      const initialToggle = $('#initialToggle');
-      if (initialToggle && initialToggle.checked) addons.push('initial');
       return {
         base: state.base.id,
         clasp: state.clasp ? state.clasp.id : '',
-        addons,
+        addons: state.addons.map((item) => item.id),
         initial: state.initial,
         hidden: state.hidden,
         designImageUrl: safeUpload(activeMember ? activeMember.designImageUrl : ''),
@@ -716,27 +642,30 @@
       syncViewer();
     }
 
-    $$('.addon-option input').forEach((input) => input.addEventListener('change', () => {
-      if (input.dataset.addon === 'initial') {
-        $('#initialText').disabled = !input.checked;
-        if (!input.checked) { state.initial = ''; $('#initialText').value = ''; }
-      }
-      state.hidden = state.hidden.filter((id) => id !== input.dataset.addon);
-      syncSelections();
-      update();
-    }));
-
-    // Category checkboxes rendered from the dashboard.
+    // Every option control is rendered from the payload, so one delegated listener covers them.
     document.addEventListener('change', (event) => {
       const input = event.target;
       if (!input || !input.dataset || !input.dataset.optionCategory) return;
+      if (input.dataset.optionKey === 'initial') {
+        const letter = $('[data-initial-input]');
+        if (letter) {
+          letter.disabled = !input.checked;
+          if (!input.checked) {
+            state.initial = '';
+            letter.value = '';
+          }
+        }
+      }
+      state.hidden = state.hidden.filter((id) => id !== input.dataset.optionKey);
       syncSelections();
       update();
     });
 
-    $('#initialText').addEventListener('input', (event) => {
-      state.initial = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 1);
-      event.target.value = state.initial;
+    document.addEventListener('input', (event) => {
+      const input = event.target;
+      if (!input || !input.dataset || !('initialInput' in input.dataset)) return;
+      state.initial = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 1);
+      input.value = state.initial;
       update();
     });
 
@@ -762,11 +691,12 @@
     });
 
     $('#continueToCheckout').addEventListener('click', () => {
-      if ($('#initialToggle').checked && !state.initial) {
-        $('#initialText').focus();
-        $('#initialText').setCustomValidity('Enter one letter for your initial.');
-        $('#initialText').reportValidity();
-        $('#initialText').addEventListener('input', () => $('#initialText').setCustomValidity(''), { once: true });
+      const letter = $('[data-initial-input]');
+      if (letter && !letter.disabled && !state.initial) {
+        letter.focus();
+        letter.setCustomValidity('Enter one letter for your initial.');
+        letter.reportValidity();
+        letter.addEventListener('input', () => letter.setCustomValidity(''), { once: true });
         return;
       }
       const total = renderPreview();
@@ -786,7 +716,7 @@
         ? { ...addon, price: 0, free: true }
         : addon));
       const extraLabels = Object.entries(state.selections)
-        .filter(([slug]) => !STATIC_CATEGORIES.includes(slug))
+        .filter(([slug]) => !ORDER_FIELDS.includes(slug))
         .flatMap(([, keys]) => keys.map((key) => (itemByKey(key) ? itemByKey(key).label : '')).filter(Boolean));
 
       const pendingOrder = {
@@ -829,10 +759,9 @@
       window.location.href = 'checkout.html';
     });
 
-    applyStaticStepVisibility();
     renderFulfillmentChoices();
+    renderOptionSteps();
     syncSelections();
-    renderDynamicCategories();
     renderPreview();
     /* ------------------------------------------------------------------ *
      * Lazy 3D viewer. Three.js is only downloaded once the preview area
@@ -866,7 +795,7 @@
     }
 
     function onToggleAddon(componentId, visible) {
-      const input = $(`[data-addon="${componentId}"]`);
+      const input = $(`[data-option-key="${componentId}"]`);
       if (!input || input.checked === visible) return;
       input.checked = visible;
       input.dispatchEvent(new Event('change', { bubbles: true }));

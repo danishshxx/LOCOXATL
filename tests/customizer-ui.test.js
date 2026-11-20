@@ -27,9 +27,11 @@ test('the 3D viewer mounts into the existing preview panel without new layout se
   assert.match(studioHtml, /class="builder-preview-panel"/);
   // The customer cannot switch silhouettes; the shared model is chosen in Product Setup.
   assert.doesNotMatch(studioHtml, /data-base="heart"/, 'silhouette switching is removed');
-  for (const marker of ['data-addon="pearl"', 'data-addon="star"', 'id="initialToggle"', 'data-clasp="silver"', 'data-clasp="black"', 'id="continueToCheckout"']) {
+  for (const marker of ['id="continueToCheckout"', 'id="dynamicOptionSteps"']) {
     assert.ok(studioHtml.includes(marker), `${marker} control must stay in place`);
   }
+  // Option rows come from /api/catalog: no accessory is baked into the page.
+  assert.doesNotMatch(studioHtml, /data-addon=|data-clasp=|id="initialToggle"|id="initialText"/, 'no static option markup');
   assert.match(studioScript, /activeMember|activeProduct/, 'the studio renders the selected design row');
   assert.doesNotMatch(studioScript, /baseModel|baseNames|'Heart'|'Ribbon'/, 'no silhouette keys remain in the studio');
   assert.match(studioScript, /designImageUrl/, 'the member artwork is applied to the charm face');

@@ -182,6 +182,25 @@ test('the admin catalogue still lists a switched-off accessory', async () => {
 });
 
 
+test('only the live accessory is published and rendered when its siblings are off', async () => {
+  // Pearl drop stays on; Mini star and Your initial are switched off in the same category.
+  const star = state.options.find((row) => row.option_key === 'star');
+  const initial = state.options.find((row) => row.option_key === 'initial');
+  const previous = { star: star.is_active, initial: initial.is_active };
+  star.is_active = 0;
+  initial.is_active = 0;
+
+  try {
+    const payload = await serverCatalog.loadCatalog({ activeOnly: true });
+    assert.deepEqual(keys(payload.options.items), ['pearl', 'silver'], 'only the live add-on survives');
+    assert.deepEqual(payload.options.addons.map((item) => item.key), ['pearl']);
+    assert.deepEqual(payload.optionCategories.map((category) => category.slug), ['addon', 'clasp']);
+  } finally {
+    star.is_active = previous.star;
+    initial.is_active = previous.initial;
+  }
+});
+
 test('the admin loaders keep every row, live or not', async () => {
   const groups = await serverCatalog.listAllGroups();
   const products = await serverCatalog.listProducts();

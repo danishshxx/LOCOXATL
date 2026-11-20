@@ -9,20 +9,20 @@ const pricing = require('../src/pricing.js');
 const { validateOrderPayload, ValidationError } = require('../src/server/validation.js');
 
 const html = fs.readFileSync(path.join(root, 'studio.html'), 'utf8');
-const priceFor = (attribute, value) => {
-  const match = html.match(new RegExp(`${attribute}="${value}"[^>]*data-price="(\\d+)"`));
-  return match ? Number(match[1]) : null;
-};
+const studioScript = fs.readFileSync(path.join(root, 'src', 'studio.js'), 'utf8');
 
-test('src/options.js stays the single source of truth for add-on and clasp prices shown in the studio', () => {
+test('the studio renders add-on and clasp prices from the catalogue, never from markup', () => {
+  // The old markup duplicated every price next to the catalogue; the rows are rendered now.
+  assert.doesNotMatch(html, /data-addon=|data-clasp=|data-price=/, 'no option row is hardcoded');
   for (const addon of options.addons) {
-    const domPrice = priceFor('data-addon', addon.id);
-    assert.equal(domPrice, addon.price, `${addon.id} price drifted between studio.html and src/options.js`);
+    assert.ok(!html.includes(addon.name), `${addon.name} must come from the catalogue`);
   }
   for (const clasp of options.clasps) {
-    const domPrice = priceFor('data-clasp', clasp.id);
-    assert.equal(domPrice, clasp.price, `${clasp.id} price drifted between studio.html and src/options.js`);
+    assert.ok(!html.includes(clasp.name), `${clasp.name} must come from the catalogue`);
   }
+  assert.match(studioScript, /function optionRowMarkup\(/, 'rows are built from the payload');
+  assert.match(studioScript, /money\(item\.price\)/, 'the price shown is the catalogue price');
+  assert.match(studioScript, /function optionChoiceMarkup\(/, 'single-choice items too');
 });
 
 test('catalog base prices still drive the base charm price', () => {
