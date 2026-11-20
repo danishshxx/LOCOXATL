@@ -8,7 +8,9 @@ const {
   buildVerificationMessage,
   buildChatUrl,
   buildCodMessage,
+  buildStorefrontChatUrl,
   normalizeWhatsAppNumber,
+  DEFAULT_WHATSAPP_NUMBER,
 } = require('../src/whatsapp.js');
 
 const root = path.join(__dirname, '..');
@@ -100,10 +102,25 @@ test('both storefront pages use the shared template instead of their own copy', 
 
   for (const [name, source] of pages) {
     assert.match(source, /buildVerificationMessage/, `${name} must use the shared template`);
-    assert.match(source, /buildDirectChatUrl/, `${name} must use the direct chat-link builder`);
+    assert.match(source, /buildStorefrontChatUrl/, `${name} must use the storefront chat-link builder`);
     assert.doesNotMatch(source, /Halo LOCOXATL/, `${name} must not keep the old message body`);
   }
 
   assert.match(fs.readFileSync(path.join(root, 'payment.html'), 'utf8'), /src\/whatsapp\.js/);
   assert.match(fs.readFileSync(path.join(root, 'order-success.html'), 'utf8'), /src\/whatsapp\.js/);
+});
+
+test('the storefront chat link always targets a real number', () => {
+  assert.ok(
+    buildStorefrontChatUrl({ whatsappNumber: '628111111111' }, 'x').startsWith('https://wa.me/628111111111?text='),
+    'the configured number wins',
+  );
+  for (const config of [null, undefined, {}, { whatsappNumber: '' }]) {
+    const url = buildStorefrontChatUrl(config, 'x');
+    assert.ok(
+      url.startsWith(`https://wa.me/${DEFAULT_WHATSAPP_NUMBER}?text=`),
+      'a missing configuration still resolves the shop number',
+    );
+    assert.ok(!url.includes('wa.me/?'), 'the generic share sheet is never used');
+  }
 });

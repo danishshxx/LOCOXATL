@@ -2083,6 +2083,7 @@
     $('#artistMemberFormId').value = member ? String(member.id) : '';
     $('#artistMemberName').value = member ? member.name : '';
     $('#artistMemberSlug').value = member ? member.slug : '';
+    $('#artistMemberPriceOverride').value = member && member.priceOverride != null ? String(member.priceOverride) : '';
     $('#artistMemberGroup').value = String(member ? member.groupId : ($('#memberGroupFilter').value || artistGroups[0].id));
     $('#artistMemberSortOrder').value = String(member ? member.sortOrder : 0);
     $('#artistMemberVersion').value = member && member.versionKey ? member.versionKey : 'yellow';
@@ -2188,6 +2189,10 @@
       versionKey: $('#artistMemberVersion').value,
       sortOrder: Number($('#artistMemberSortOrder').value),
       isActive: $('#artistMemberIsActive').checked,
+      // Blank means "use the global base price", which the API stores as NULL.
+      priceOverride: $('#artistMemberPriceOverride').value === ''
+        ? null
+        : Number($('#artistMemberPriceOverride').value),
     };
     // The portrait and keychain artwork are sent with the row so a failed insert never orphans
     // an upload.
@@ -2209,6 +2214,7 @@
 
       closeArtistMemberModal();
       await loadArtistMembers();
+      refreshPriceOverridesIfVisible();
       showToast(id ? 'Member updated.' : 'Member created.');
     } catch (error) {
       errorEl.textContent = error.message;
@@ -2231,6 +2237,7 @@
       if (!response.ok) throw new Error(data.message || 'Member could not be deleted.');
       closeArtistMemberModal();
       await loadArtistMembers();
+      refreshPriceOverridesIfVisible();
       showToast(`Deleted "${name}".`);
     } catch (error) {
       showToast(`Delete error: ${error.message}`);
@@ -2284,6 +2291,159 @@
   // ---------------------------------------------------------------------------
   // Product Setup: the shared base price and the universal option prices.
   // ---------------------------------------------------------------------------
+  // ------------------------------------------------------- per-product pricing
+  let priceOverrideRows = { products: [], members: [] };
+
+  const rupiah = (value) => `Rp${Number(value || 0).toLocaleString('id-ID')}`;
+
+  function designRows() {
+    const groupName = (groupId) => {
+      const group = artistGroups.find((item) => Number(item.id) === Number(groupId));
+      return group ? group.name : '';
+    };
+    const toRow = (kind, item) => ({
+      kind,
+      id: item.id,
+      name: item.name,
+      slug: item.slug,
+      groupName: item.groupName || groupName(item.groupId),
+      version: item.versionKey || 'yellow',
+      price: item.price,
+      priceOverride: item.priceOverride,
+    });
+    return [
+      ...priceOverrideRows.products.map((item) => toRow('products', item)),
+      ...priceOverrideRows.members.map((item) => toRow('members', item)),
+    ];
+  }
+
+  function priceOverridesSummary() {
+    const active = designRows().filter((row) => row.priceOverride != null).length;
+    const note = $('#priceOverridesNote');
+    if (note) note.textContent = `${active} override${active === 1 ? '' : 's'} active.`;
+  }
+
+  async function loadPriceOverrides() {
+    const tbody = $('#priceOverridesBody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="table-loading">Loading designs and members...</td></tr>';
+    try {
+      await ensureArtistGroupsLoaded();
+      const [productResponse, memberResponse] = await Promise.all([
+        adminFetch('/api/admin/catalog/products'),
+        adminFetch('/api/admin/catalog/members'),
+      ]);
+      const productData = await productResponse.json();
+      const memberData = await memberResponse.json();
+      if (!productResponse.ok) throw new Error(productData.message || 'Designs could not be loaded.');
+      if (!memberResponse.ok) throw new Error(memberData.message || 'Members could not be loaded.');
+      priceOverrideRows = {
+        products: productData.products || [],
+        members: memberData.members || [],
+      };
+      renderPriceOverrides();
+      priceOverridesSummary();
+    } catch (error) {
+      priceOverrideRows = { products: [], members: [] };
+      tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+      const note = $('#priceOverridesNote');
+      if (note) note.textContent = databaseMessage(error, 'Design pricing');
+    }
+  }
+
+  function renderPriceOverrides() {
+    const tbody = $('#priceOverridesBody');
+    if (!tbody) return;
+    const rows = designRows();
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="table-empty">No designs or members yet. Add a collection first.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map((row) => {
+      const overridden = row.priceOverride != null;
+      const key = `${row.kind}-${row.id}`;
+      const effective = `${rupiah(row.price)} ${overridden ? '(Override)' : '(Global)'}`;
+      return `
+      <tr data-price-row="${key}">
+        <td class="customer-cell">
+          <strong>${escapeHtml(row.name)}</strong>
+          <span class="catalog-slug">${row.kind === 'members' ? 'member' : 'product'} · ${escapeHtml(row.slug)}</span>
+        </td>
+        <td class="catalog-description-cell">${escapeHtml(row.groupName || 'No collection')} / ${escapeHtml(row.version)}</td>
+        <td><span class="price-badge${overridden ? ' is-override' : ''}">${effective}</span></td>
+        <td class="price-override-cell">
+          <input class="price-override-input" type="number" min="1" step="1" inputmode="numeric"
+            data-override-input="${key}"
+            value="${overridden ? row.priceOverride : ''}"
+            placeholder="${row.price || ''}"
+            aria-label="Override price for ${escapeHtml(row.name)}" />
+        </td>
+        <td class="th-actions">
+          <button type="button" class="button button-dark button-small" data-override-save="${key}">Save</button>
+          <button type="button" class="button button-outline button-small" data-override-reset="${key}" ${overridden ? '' : 'disabled'}>Reset</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function patchPriceOverride(kind, id, priceOverride) {
+    const response = await adminFetch(`/api/admin/catalog/${kind}/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ priceOverride }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'The override could not be saved.');
+    return kind === 'products' ? data.product : data.member;
+  }
+
+  if ($('#priceOverridesBody')) {
+    $('#priceOverridesBody').addEventListener('click', async (event) => {
+      const target = event.target;
+      const saveButton = target.closest ? target.closest('[data-override-save]') : null;
+      const resetButton = target.closest ? target.closest('[data-override-reset]') : null;
+      const button = saveButton || resetButton;
+      if (!button) return;
+
+      const key = saveButton ? saveButton.dataset.overrideSave : resetButton.dataset.overrideReset;
+      const [kind, id] = key.split('-');
+      const input = document.querySelector(`[data-override-input="${key}"]`);
+      let value = null;
+
+      if (saveButton) {
+        const raw = input ? input.value.trim() : '';
+        if (raw !== '') {
+          const amount = Number(raw);
+          if (!Number.isInteger(amount) || amount <= 0) {
+            showToast('Enter a whole rupiah amount above 0, or leave it blank to use the global price.');
+            if (input) input.focus();
+            return;
+          }
+          value = amount;
+        }
+      }
+
+      button.disabled = true;
+      try {
+        const updated = await patchPriceOverride(kind, id, value);
+        const list = kind === 'products' ? priceOverrideRows.products : priceOverrideRows.members;
+        const index = list.findIndex((item) => Number(item.id) === Number(id));
+        if (index >= 0) list[index] = updated;
+        renderPriceOverrides();
+        priceOverridesSummary();
+        showToast(value === null ? 'Override cleared. The global price applies.' : 'Override saved.');
+      } catch (error) {
+        button.disabled = false;
+        showToast(`Pricing error: ${error.message}`);
+      }
+    });
+  }
+
+  function refreshPriceOverridesIfVisible() {
+    const view = $('#viewProduct');
+    if (view && !view.hidden) loadPriceOverrides();
+  }
+
   async function loadProductSettings() {
     const note = $('#productSettingsNote');
     if (note) note.textContent = 'Loading…';
@@ -2294,6 +2454,7 @@
       productSettings = data.product || null;
       renderProductSettings();
       if (note) note.textContent = 'These settings apply to every member immediately.';
+      await loadPriceOverrides();
     } catch (error) {
       productSettings = null;
       if (note) note.textContent = databaseMessage(error, 'Product settings');
@@ -2333,6 +2494,7 @@
       showToast('Product settings saved.');
       pricingOptions = [];
       await loadPricing();
+      await loadPriceOverrides();
     } catch (error) {
       if (note) note.textContent = error.message;
       showToast(`Product settings error: ${error.message}`);

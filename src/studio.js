@@ -493,22 +493,15 @@
     });
 
     /**
-     * Points a control at the configured CS chat. Until that number is known the control carries
-     * no href at all, so a click can never land on the generic wa.me share sheet.
+     * Points a control at the shop chat. The configured number is used when it resolves, and the
+     * built-in shop number covers a failed request, so the control is never left disabled.
      */
     function applyChatLink(link, message) {
       if (!link || !whatsapp) return;
       configReady.then((config) => {
-        const url = config && config.whatsappNumber
-          ? whatsapp.buildDirectChatUrl(config.whatsappNumber, message)
-          : '';
-        if (!url) {
-          link.removeAttribute('href');
-          link.setAttribute('aria-disabled', 'true');
-          return;
-        }
-        link.href = url;
+        link.href = whatsapp.buildStorefrontChatUrl(config, message);
         link.removeAttribute('aria-disabled');
+        link.removeAttribute('tabindex');
       });
     }
 
@@ -535,10 +528,8 @@
     function applyGroupNotice() {
       const notice = $('#customDesignNotice');
       if (!notice) return;
-      const isCustom = Boolean(activeGroup && activeGroup.isCustomDesign);
-      notice.hidden = !isCustom;
-      if (!isCustom) return;
-
+      notice.hidden = !Boolean(activeGroup && activeGroup.isCustomDesign);
+      // Armed even while the notice is hidden, so revealing it never shows a dead control.
       applyChatLink(
         $('#customDesignWaLink'),
         whatsapp.buildCustomDesignMessage(activeMember ? activeMember.name : artist.name),
@@ -655,6 +646,8 @@
       const quote = pricing.quoteSelections({
         // The standard base is only a fallback: a bundle replaces it, never adds to it.
         basePrice: state.base.price,
+        // A design-level override wins over the global base price; a bundle still wins over both.
+        priceOverride: activeMember ? activeMember.priceOverride : (activeProduct && activeProduct.priceOverride),
         bundle: activeBundle
           ? {
             price: Number(activeBundle.price),

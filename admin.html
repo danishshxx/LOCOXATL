@@ -482,6 +482,27 @@
       </div>
 
       <div class="admin-table-card">
+        <div class="card-heading"><span>PER-PRODUCT PRICING (OPTIONAL OVERRIDES)</span><span id="priceOverridesNote" role="status"></span></div>
+        <div class="table-wrap">
+          <table class="admin-orders-table catalog-table">
+            <thead>
+              <tr>
+                <th>DESIGN</th>
+                <th>GROUP / VERSION</th>
+                <th>EFFECTIVE PRICE</th>
+                <th>OVERRIDE (IDR)</th>
+                <th class="th-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="priceOverridesBody">
+              <tr><td colspan="5" class="table-loading">Loading designs and members...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="catalog-source-note">Leave the override blank to use the Global Base Price. Reset clears the override back to the global price. A bundle still replaces both at checkout.</p>
+      </div>
+
+      <div class="admin-table-card">
         <div class="card-heading"><span>OPTION CATEGORIES</span><span id="optionCategoriesNote" role="status"></span></div>
         <div class="table-wrap">
           <table class="admin-orders-table catalog-table">
@@ -963,6 +984,7 @@
           </select>
         </label>
         <label>Slug <input type="text" id="artistMemberSlug" maxlength="64" placeholder="Generated from the name when left empty" autocomplete="off" /></label>
+        <label>Product price override (IDR) <input type="number" id="artistMemberPriceOverride" min="1" step="1" inputmode="numeric" placeholder="Leave blank to use the global base price" /></label>
         <div class="catalog-image-field">
           <span class="catalog-field-label">Portrait image</span>
           <div class="catalog-image-preview" id="artistPortraitPreview" hidden>

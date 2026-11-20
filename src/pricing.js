@@ -77,9 +77,15 @@
       ? new Set(bundle.freeAddonIds.map((key) => String(key).trim().toLowerCase()))
       : null;
 
-    const basePrice = bundle && bundle.price !== undefined && bundle.price !== null
+    const bundlePrice = bundle && bundle.price !== undefined && bundle.price !== null
       ? Number(bundle.price)
-      : (input.basePrice ?? 0);
+      : null;
+    // A bundle owns the base price outright. Without one, a design-level override replaces the
+    // global base price, and only then does the caller's base price apply.
+    const override = input.priceOverride == null ? null : Number(input.priceOverride);
+    const basePrice = bundlePrice !== null
+      ? bundlePrice
+      : (override !== null && Number.isFinite(override) ? override : (input.basePrice ?? 0));
     const addonPrices = Array.isArray(input.addonIds)
       ? input.addonIds.map((id) => {
         if (freeIds && freeIds.has(String(id == null ? '' : id).trim().toLowerCase())) return 0;
@@ -188,7 +194,10 @@
     const bundlePrice = input.bundle && input.bundle.price !== undefined && input.bundle.price !== null
       ? Number(input.bundle.price)
       : null;
-    const baseForQuote = bundlePrice !== null ? bundlePrice : (input.basePrice ?? 0);
+    const override = input.priceOverride == null ? null : Number(input.priceOverride);
+    const baseForQuote = bundlePrice !== null
+      ? bundlePrice
+      : (override !== null && Number.isFinite(override) ? override : (input.basePrice ?? 0));
 
     const quote = calculatePrice({
       basePrice: baseForQuote,

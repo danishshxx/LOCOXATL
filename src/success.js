@@ -16,8 +16,8 @@
   const copyButton = $('copyOrderMessage');
   const actionStatus = $('successActionStatus');
 
-  // The confirmation has to land in the shop chat, so the button is only armed once the
-  // configured number is known; it is never pointed at the generic share sheet.
+  // The confirmation has to land in the shop chat. A failed configuration request still arms the
+  // button with the built-in shop number, so it is never left dead.
   whatsappLink.removeAttribute('tabindex');
 
   const publicConfig = window.locoxatlPublicConfig || fetch('/api/public-config').then((response) => {
@@ -25,24 +25,9 @@
     return response.json();
   });
 
-  function disableWhatsAppLink(messageText) {
-    whatsappLink.removeAttribute('href');
-    whatsappLink.setAttribute('aria-disabled', 'true');
-    actionStatus.textContent = messageText;
-  }
-
-  publicConfig.then((config) => {
-    const url = config && config.whatsappNumber
-      ? whatsapp.buildDirectChatUrl(config.whatsappNumber, message)
-      : '';
-    if (!url) {
-      disableWhatsAppLink('WhatsApp is not configured yet. Copy your order message and send it to our CS.');
-      return;
-    }
-    whatsappLink.href = url;
+  publicConfig.catch(() => null).then((config) => {
+    whatsappLink.href = whatsapp.buildStorefrontChatUrl(config, message);
     whatsappLink.removeAttribute('aria-disabled');
-  }).catch(() => {
-    disableWhatsAppLink('WhatsApp could not be configured. Copy your order message and send it to our CS.');
   });
 
   copyButton.addEventListener('click', async () => {

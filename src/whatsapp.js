@@ -118,6 +118,19 @@
     return `https://wa.me/${digits}?text=${encodeURIComponent(String(message == null ? '' : message))}`;
   }
 
+  // Mirrors the server default in src/server/public-config.js, so a storefront whose
+  // configuration request fails still opens the shop chat instead of a dead control.
+  const DEFAULT_WHATSAPP_NUMBER = '6281282116351';
+
+  /**
+   * The link every storefront control uses. The configured number wins; the built-in shop number
+   * is the fallback, so the result is always a direct chat with a real number.
+   */
+  function buildStorefrontChatUrl(config, message) {
+    const number = (config && config.whatsappNumber) || DEFAULT_WHATSAPP_NUMBER;
+    return buildDirectChatUrl(number, message);
+  }
+
   return {
     VERIFICATION_TEMPLATE,
     buildVerificationMessage,
@@ -127,5 +140,7 @@
     normalizeWhatsAppNumber,
     buildChatUrl,
     buildDirectChatUrl,
+    buildStorefrontChatUrl,
+    DEFAULT_WHATSAPP_NUMBER,
   };
 });

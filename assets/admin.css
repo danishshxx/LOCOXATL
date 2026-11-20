@@ -1478,6 +1478,53 @@ body.admin-body {
   color: var(--admin-text-muted);
 }
 
+/* Per-product pricing overrides */
+.price-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: var(--admin-text-muted);
+}
+
+.price-badge.is-override {
+  border-color: var(--admin-text-main);
+  color: var(--admin-text-main);
+}
+
+.price-override-cell {
+  width: 150px;
+}
+
+.price-override-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+}
+
+.price-override-input:focus-visible {
+  outline: 2px solid var(--admin-text-main);
+  outline-offset: 1px;
+}
+
+[data-price-row] .th-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* --------------------------------------------------------------------------
    Toggle switch
    -------------------------------------------------------------------------- */

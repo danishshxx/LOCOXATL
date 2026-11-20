@@ -255,7 +255,7 @@ test('no WhatsApp entry point can navigate back into the storefront', () => {
 
   // Storefront scripts only ever write a direct chat URL with the configured number.
   for (const script of ['src/studio.js', 'src/payment.js', 'src/success.js']) {
-    assert.match(read(script), /buildDirectChatUrl\(/, `${script} must use the direct chat helper`);
+    assert.match(read(script), /buildStorefrontChatUrl\(/, `${script} must use the storefront chat helper`);
     assert.doesNotMatch(read(script), /buildChatUrl\(\s*''/, `${script} must not fall back to the share sheet`);
   }
 
