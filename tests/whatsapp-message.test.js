@@ -6,6 +6,7 @@ const path = require('node:path');
 const {
   VERIFICATION_TEMPLATE,
   buildVerificationMessage,
+  buildOrderItemLines,
   buildChatUrl,
   buildCodMessage,
   buildStorefrontChatUrl,
@@ -123,4 +124,55 @@ test('the storefront chat link always targets a real number', () => {
     );
     assert.ok(!url.includes('wa.me/?'), 'the generic share sheet is never used');
   }
+});
+
+test('a multi-item order lists every line with its quantity, configuration and total', () => {
+  const items = [
+    { name: 'Jisoo Keychain', quantity: 2, configuration: 'Pearl drop · Silver clasp', total: 104000 },
+    { name: 'Lisa Keychain', quantity: 1, configuration: 'Mini star · Black clasp', total: 57000 },
+  ];
+
+  const lines = buildOrderItemLines(items);
+  assert.deepEqual(lines, [
+    '1. Jisoo Keychain (×2) — Pearl drop · Silver clasp — Rp104.000',
+    '2. Lisa Keychain — Mini star · Black clasp — Rp57.000',
+  ]);
+
+  const message = buildVerificationMessage('LX-MULTI-1', items, 161000);
+  assert.ok(message.startsWith(EXPECTED + 'LX-MULTI-1'), 'the agreed template still opens the message');
+  assert.match(message, /1\. Jisoo Keychain \(×2\) — Pearl drop · Silver clasp — Rp104\.000/);
+  assert.match(message, /2\. Lisa Keychain — Mini star · Black clasp — Rp57\.000/);
+  assert.match(message, /Total: Rp161\.000/);
+});
+
+test('a single-item message keeps the bare template', () => {
+  const message = buildVerificationMessage('LX-ONE-1', [{ name: 'Jisoo Keychain', quantity: 1 }], 60000);
+  assert.match(message, /1\. Jisoo Keychain/);
+  assert.doesNotMatch(message, /×1/, 'a quantity of one is not printed');
+  assert.match(message, /Total: Rp60\.000/);
+
+  assert.equal(buildVerificationMessage('LX-ONE-1', [], 60000), `${EXPECTED}LX-ONE-1`);
+  assert.equal(buildVerificationMessage('LX-ONE-1'), `${EXPECTED}LX-ONE-1`);
+});
+
+test('the COD message prints the numbered order instead of a single design', () => {
+  const message = buildCodMessage({
+    orderNumber: 'LX-COD-2',
+    name: 'Ayu Lestari',
+    phone: '081234567890',
+    items: [
+      { name: 'Jisoo Keychain', quantity: 2, configuration: 'Pearl drop · Silver clasp', total: 104000 },
+      { name: 'Lisa Keychain', quantity: 1, configuration: 'Black clasp', total: 50000 },
+    ],
+    fulfillment: 'COD / Ketemuan',
+    address: 'Jl. Merdeka 10',
+    total: 'Rp154.000',
+  });
+
+  assert.match(message, /Pesanan:/);
+  assert.match(message, /1\. Jisoo Keychain \(×2\) — Pearl drop · Silver clasp — Rp104\.000/);
+  assert.match(message, /2\. Lisa Keychain — Black clasp — Rp50\.000/);
+  assert.match(message, /Total: Rp154\.000/);
+  assert.match(message, /Metode pembayaran: COD\./);
+  assert.doesNotMatch(message, /Member:/, 'the numbered list replaces the single-design fields');
 });

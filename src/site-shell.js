@@ -12,6 +12,9 @@
           <a href="shop.html" class="nav-shop-link">Buy Now</a>
         </nav>
         <button class="icon-button mobile-menu-button" id="mobileMenuButton" aria-label="Open menu" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        <div class="header-actions">
+          <button type="button" class="bag-button" id="cartButton" aria-label="Cart, empty" aria-haspopup="dialog"><span>Cart</span><span class="bag-count" id="cartCount" hidden>0</span></button>
+        </div>
         <nav class="mobile-nav" id="mobileNav" hidden aria-label="Mobile navigation"><a href="index.html">Home</a><a href="index.html#our-story">Our story</a><a href="shop.html">Collections</a><a href="shop.html">Buy Now</a></nav>
       </header>`;
   }

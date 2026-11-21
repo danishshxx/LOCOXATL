@@ -573,6 +573,22 @@ async function runAdditiveMigrations() {
       await connection.query('ALTER TABLE artist_members ADD COLUMN price_override INT UNSIGNED NULL DEFAULT NULL');
     }
 
+    // 15. Multi-item order lines (migration 015). The historical product_name/subtotal columns
+    //     keep their values, so an order written before this migration still reads back intact.
+    const orderItemColumns = await tableColumns(connection, 'order_items');
+    const missingOrderItemColumns = [
+      ['item_name', 'VARCHAR(160) NULL AFTER product_name'],
+      ['product_id', 'INT UNSIGNED NULL AFTER item_name'],
+      ['member_id', 'INT UNSIGNED NULL AFTER product_id'],
+      ['group_name', 'VARCHAR(160) NULL AFTER member_id'],
+      ['version_name', 'VARCHAR(32) NULL AFTER group_name'],
+      ['line_total', 'INT UNSIGNED NULL AFTER subtotal'],
+      ['configuration_json', 'JSON NULL AFTER line_total'],
+    ].filter(([name]) => !orderItemColumns.has(name));
+    for (const [name, definition] of missingOrderItemColumns) {
+      await connection.query(`ALTER TABLE order_items ADD COLUMN ${name} ${definition}`);
+    }
+
     const catalogSeed = await seedCatalogGroups();
     const pricingSeed = await seedPricingOptions();
     const productSeed = await seedCatalogProducts();

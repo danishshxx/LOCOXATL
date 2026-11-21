@@ -80,7 +80,8 @@
     .catch(() => { /* the stored snapshot already covers this */ });
 
   // Customer verification message — shared template with the success page (src/whatsapp.js).
-  const message = whatsapp.buildVerificationMessage(order.orderNumber);
+  // Every line of the order travels with it, so the admin sees the full basket in one message.
+  const message = whatsapp.buildVerificationMessage(order.orderNumber, order.items, order.total);
   const whatsappLink = $('#whatsappConfirm');
 
   // The confirmation has to land in the shop chat. A failed configuration request still arms the

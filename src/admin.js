@@ -650,12 +650,14 @@
     }
 
     tbody.innerHTML = orders.map((order) => {
-      const firstItem = order.items?.[0];
+      const items = Array.isArray(order.items) ? order.items : [];
+      const firstItem = items[0];
       const config = firstItem?.configuration?.configuration || firstItem?.configuration || {};
       const baseName = config.base?.name || config.base || 'Custom base';
       const initial = config.initial ? `Initial "${config.initial}"` : '';
       const addons = Array.isArray(config.addons) ? config.addons.map((a) => a.name || a).join(', ') : '';
       const detailsLine = [baseName, initial, addons].filter(Boolean).join(' · ');
+      const moreLine = items.length > 1 ? ` +${items.length - 1} more item${items.length > 2 ? 's' : ''}` : '';
 
       const statusBadge = `<span class="status-pill status-${order.status}">${formatStatusLabel(order.status)}</span>`;
       const needsAction = order.status === 'waiting_for_payment' || order.status === 'payment_confirmation_sent';
@@ -669,7 +671,7 @@
             <span>${escapeHtml(order.customer.phone)}</span>
           </td>
           <td class="product-cell">
-            <strong>${escapeHtml(firstItem?.productName || 'LOCOXATL Keychain')}</strong>
+            <strong>${escapeHtml(firstItem?.productName || 'LOCOXATL Keychain')}${escapeHtml(moreLine)}</strong>
             <span>${escapeHtml(detailsLine || 'Standard assembly')}</span>
           </td>
           <td class="amount-cell">${money(order.total)}</td>
@@ -877,15 +879,23 @@
     $('#detailTotalAmount').textContent = money(order.total);
 
     const itemsContainer = $('#detailItemsList');
-    itemsContainer.innerHTML = (order.items || []).map((item) => `
+    const detailItems = Array.isArray(order.items) ? order.items : [];
+    itemsContainer.innerHTML = detailItems.length ? detailItems.map((item) => {
+      const details = [
+        item.groupName,
+        item.versionName ? `${item.versionName} version` : '',
+        describeItemConfiguration(item.configuration),
+      ].filter(Boolean).join(' · ');
+      return `
       <div class="order-item-row">
         <div>
           <strong>${escapeHtml(item.productName)}</strong> × ${item.quantity}
+          <div style="font-size:10px; color:#888;">${escapeHtml(details || 'Standard assembly')}</div>
           <div style="font-size:10px; color:#888;">Unit: ${money(item.unitPrice)}</div>
         </div>
         <strong>${money(item.subtotal)}</strong>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('') : '<p class="demo-note">No line items were stored for this order.</p>';
 
     // Fulfillment & Notes Form
     $('#courierInput').value = order.shippingCourier || '';
@@ -897,7 +907,7 @@
     renderTimeline(order.history, order.createdAt);
 
     // BOM (Bill of Materials) Specs
-    renderBOM(order.configuration);
+    renderBOM(order);
 
     // Raw JSON Toggle
     const rawJsonEl = $('#rawJsonCode');
@@ -1039,20 +1049,45 @@
     `).join('');
   }
 
-  function renderBOM(configuration) {
+  /** One readable line for a stored configuration snapshot. */
+  function describeItemConfiguration(configuration) {
+    const c = configuration && (configuration.configuration || configuration);
+    if (!c) return '';
+    const addons = (Array.isArray(c.addons) ? c.addons : [])
+      .map((addon) => (addon && (addon.name || addon.id)) || addon)
+      .filter(Boolean);
+    const clasp = c.clasp && (c.clasp.name || c.clasp);
+    return [...addons, c.initial ? `Initial ${c.initial}` : '', clasp].filter(Boolean).join(' · ');
+  }
+
+  function renderBOM(order) {
     const list = $('#bomList');
-    if (!configuration) {
+    const items = Array.isArray(order && order.items) ? order.items : [];
+    const specs = items
+      .filter((item) => item && item.configuration)
+      .map((item) => ({ item, configuration: item.configuration }));
+    // An order written before order_items carried its own snapshot still has the first
+    // configuration at the top level.
+    if (!specs.length && order && order.configuration) {
+      specs.push({ item: null, configuration: order.configuration });
+    }
+
+    if (!specs.length) {
       list.innerHTML = '<div class="bom-item"><span>No 3D configuration data available.</span></div>';
       return;
     }
 
-    const c = configuration.configuration || configuration;
-    const baseName = c.base?.name || c.base || 'Base design';
-    const claspName = c.clasp?.name || c.clasp || 'Silver Clasp';
-    const initial = c.initial || 'None';
-    const addons = Array.isArray(c.addons) ? c.addons : [];
+    list.innerHTML = specs.map((entry, index) => {
+      const c = entry.configuration.configuration || entry.configuration;
+      const baseName = c.base?.name || c.base || 'Base design';
+      const claspName = c.clasp?.name || c.clasp || 'Silver Clasp';
+      const initial = c.initial || 'None';
+      const addons = Array.isArray(c.addons) ? c.addons : [];
+      const heading = specs.length > 1
+        ? `<div class="bom-item"><strong>${escapeHtml(entry.item ? entry.item.productName : `Item ${index + 1}`)}</strong><span>× ${entry.item ? entry.item.quantity : 1}</span></div>`
+        : '';
 
-    list.innerHTML = `
+      return `${heading}
       <div class="bom-item">
         <strong>Base Design</strong>
         <span>${escapeHtml(String(baseName))} (Beveled Acrylic)</span>
@@ -1070,8 +1105,8 @@
           <strong>Accessory Add-on</strong>
           <span>${escapeHtml(a.name || a.id || String(a))}</span>
         </div>
-      `).join('')}
-    `;
+      `).join('')}`;
+    }).join('');
   }
 
   $('#toggleRawJsonBtn').addEventListener('click', () => {

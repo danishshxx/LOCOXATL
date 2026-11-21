@@ -59,12 +59,14 @@ test('artist member page carries the selected member into the custom studio', ()
   assert.doesNotMatch(html, /data-product="blackpink-cloud-heart"/, 'no design may be hardcoded in the page');
 });
 
-test('custom studio sends the selected configuration directly to checkout', () => {
+test('custom studio offers add to cart and a direct checkout that leaves the cart alone', () => {
   const html = read('studio.html');
   const script = read('src/studio.js');
   assert.match(html, /id="continueToCheckout"/);
-  assert.match(script, /checkout\.html/);
-  assert.match(script, /locoxatl-pending-order/);
+  assert.match(html, /id="addToCart"/);
+  assert.match(script, /checkout\.html\?mode=direct/);
+  assert.match(script, /writeDirectCheckout/, 'buy now keeps its own storage key');
+  assert.doesNotMatch(html, /id="fulfillmentStep"/, 'fulfillment moved to the checkout page');
 });
 
 test('checkout advances to payment and payment page provides QRIS and WhatsApp confirmation flow', () => {

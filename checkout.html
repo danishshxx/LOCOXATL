@@ -30,6 +30,12 @@
             <div class="shipping-note"><strong>Shipping fee</strong><span>Confirmed by admin via WhatsApp before final payment.</span></div>
           </fieldset>
 
+          <fieldset class="checkout-fieldset">
+            <legend>How to receive it</legend>
+            <div class="bundle-choices" id="fulfillmentChoices" role="radiogroup" aria-label="Delivery option"></div>
+            <p class="demo-note" id="shopeeNote" hidden>Shopee orders are paid and shipped inside Shopee. Our CS sends the checkout link for this order after you submit.</p>
+          </fieldset>
+
           <fieldset class="payment-method-fieldset" id="paymentMethodFieldset">
             <legend>Payment method</legend>
             <div class="bundle-choices" id="paymentMethodChoices" role="radiogroup" aria-label="Payment method"></div>
@@ -46,18 +52,8 @@
       <aside class="checkout-card order-summary-card">
         <div class="checkout-card-heading"><span>02 / YOUR DESIGN</span><span>ORDER SUMMARY</span></div>
         <div id="checkoutOrderSummary">
-          <div class="summary-product">
-            <div class="summary-product-art" id="summaryProductArt">
-              <img class="summary-product-image" id="summaryProductImage" alt="Selected keychain preview" decoding="async" hidden />
-              <span class="summary-product-empty" id="summaryProductEmpty">LOCOXATL</span>
-            </div>
-            <div class="summary-product-copy">
-              <span class="eyebrow">LOCOXATL CUSTOM</span>
-              <h2 id="summaryProductName">Your custom keychain</h2>
-              <p id="summaryArtistName">Artist collection</p>
-              <p id="summaryConfiguration">Your selected configuration</p>
-            </div>
-          </div>
+          <div class="summary-items" id="summaryItems"></div>
+          <p class="checkout-status" id="checkoutNotices" role="status" hidden></p>
           <dl class="summary-total-list">
             <div class="summary-total-row"><dt>Product subtotal</dt><dd id="summaryPrice">Rp0</dd></div>
             <div class="summary-total-row muted"><dt>Delivery</dt><dd id="summaryFulfillment">Campus delivery</dd></div>
@@ -70,6 +66,6 @@
       </aside>
     </div>
   </main>
-  <div data-site-footer></div><script src="src/whatsapp.js"></script><script src="src/site-shell.js"></script><script src="src/checkout.js"></script>
+  <div data-site-footer></div><script src="src/whatsapp.js"></script><script src="src/pricing.js"></script><script src="src/cart.js"></script><script src="src/site-shell.js"></script><script src="src/checkout.js"></script>
 </body>
 </html>

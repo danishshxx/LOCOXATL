@@ -10,9 +10,57 @@
   // wa.me only accepts an international number without symbols: 62 followed by the local part.
   const PHONE_PATTERN = /^[1-9]\d{7,14}$/;
 
-  function buildVerificationMessage(orderNumber) {
+  /** Rp104.000 — accepts a number or an already formatted string. */
+  function formatRupiah(value) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!/^-?[\d.,\s]+$/.test(trimmed)) return trimmed;
+      const digits = Number(trimmed.replace(/[^\d]/g, ''));
+      if (!Number.isFinite(digits) || !digits) return trimmed;
+      return `Rp${new Intl.NumberFormat('id-ID').format(digits)}`;
+    }
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '';
+    return `Rp${new Intl.NumberFormat('id-ID').format(number)}`;
+  }
+
+  /**
+   * "1. Jisoo Keychain (×2) — Pearl drop · Silver clasp — Rp104.000"
+   * Every multi-item message prints this list, so the admin never has to ask what was ordered.
+   */
+  function buildOrderItemLines(items) {
+    return (Array.isArray(items) ? items : [])
+      .map((item) => (item && typeof item === 'object' ? item : null))
+      .filter((item) => item && String(item.name || item.productName || '').trim())
+      .map((item, index) => {
+        const quantity = Number(item.quantity) || 1;
+        const name = String(item.name || item.productName).trim();
+        const configuration = String(item.configuration || '').trim();
+        const total = item.total === undefined || item.total === null || item.total === ''
+          ? ''
+          : formatRupiah(item.total);
+        return [
+          `${index + 1}. ${name}${quantity > 1 ? ` (×${quantity})` : ''}`,
+          configuration ? ` — ${configuration}` : '',
+          total ? ` — ${total}` : '',
+        ].join('');
+      });
+  }
+
+  function buildVerificationMessage(orderNumber, items, total) {
     const value = String(orderNumber == null ? '' : orderNumber).trim();
-    return VERIFICATION_TEMPLATE.replace('{orderNumber}', value || 'LX-DEMO');
+    const message = VERIFICATION_TEMPLATE.replace('{orderNumber}', value || 'LX-DEMO');
+    const lines = buildOrderItemLines(items);
+    if (!lines.length) return message;
+
+    const totalLabel = formatRupiah(total);
+    return [
+      message,
+      '',
+      'Rincian pesanan:',
+      ...lines,
+      ...(totalLabel ? ['', `Total: ${totalLabel}`] : []),
+    ].join('\n');
   }
 
   /**
@@ -61,13 +109,19 @@
     if (orderNumber) lines.push(`Order: ${orderNumber}`);
     if (input.name) lines.push(`Nama: ${value('name')}`);
     if (input.phone) lines.push(`No. WhatsApp: ${value('phone')}`);
-    if (input.artist) lines.push(`Koleksi: ${value('artist')}`);
-    if (input.member) lines.push(`Member: ${value('member')}`);
-    else if (input.product) lines.push(`Produk: ${value('product')}`);
-    if (input.configuration) lines.push(`Konfigurasi: ${value('configuration')}`);
-    if (input.addons) lines.push(`Add-ons: ${value('addons')}`);
-    if (input.bundle) lines.push(`Paket: ${value('bundle')}`);
-    if (input.quantity) lines.push(`Jumlah: ${value('quantity')}`);
+    const items = buildOrderItemLines(input.items);
+    if (items.length) {
+      lines.push('', 'Pesanan:', ...items);
+      if (input.artist) lines.push(`Koleksi: ${value('artist')}`);
+    } else {
+      if (input.artist) lines.push(`Koleksi: ${value('artist')}`);
+      if (input.member) lines.push(`Member: ${value('member')}`);
+      else if (input.product) lines.push(`Produk: ${value('product')}`);
+      if (input.configuration) lines.push(`Konfigurasi: ${value('configuration')}`);
+      if (input.addons) lines.push(`Add-ons: ${value('addons')}`);
+      if (input.bundle) lines.push(`Paket: ${value('bundle')}`);
+      if (input.quantity) lines.push(`Jumlah: ${value('quantity')}`);
+    }
     if (input.fulfillment) lines.push(`Pengiriman: ${value('fulfillment')}`);
     if (input.address) lines.push(`Alamat: ${value('address')}`);
     if (input.note) lines.push(`Catatan: ${value('note')}`);
@@ -134,6 +188,8 @@
   return {
     VERIFICATION_TEMPLATE,
     buildVerificationMessage,
+    buildOrderItemLines,
+    formatRupiah,
     buildShopeeMessage,
     buildCustomDesignMessage,
     buildCodMessage,

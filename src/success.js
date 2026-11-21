@@ -9,8 +9,8 @@
   $('successStatus').textContent = order.status === 'payment_confirmation_sent' ? 'WAITING FOR ADMIN VERIFICATION' : 'WAITING FOR PAYMENT';
   $('successMessage').textContent = `Thank you, ${order.customer?.name || 'there'}. Your payment confirmation has been prepared. The LOCOXATL admin will verify the payment before production begins.`;
 
-  // Same verification template as the payment page (src/whatsapp.js).
-  const message = whatsapp.buildVerificationMessage(orderNumber);
+  // Same verification template as the payment page (src/whatsapp.js), with every order line.
+  const message = whatsapp.buildVerificationMessage(orderNumber, order.items, order.total);
 
   const whatsappLink = $('successWhatsApp');
   const copyButton = $('copyOrderMessage');

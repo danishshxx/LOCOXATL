@@ -69,37 +69,69 @@ async function createOrder(payload) {
             order.customer.note || null,
             order.fulfillmentMethod,
             order.paymentMethod,
-            order.quote.total,
+            order.total,
             'waiting_for_payment',
           ],
         );
         const orderId = orderResult.insertId;
 
-        const [itemResult] = await connection.execute(
-          `INSERT INTO order_items (order_id, product_name, quantity, unit_price, subtotal)
-           VALUES (?, ?, ?, ?, ?)`,
-          [orderId, order.productName, order.quantity, order.quote.unitPrice, order.quote.subtotal],
-        );
-        const orderItemId = itemResult.insertId;
+        // One row per cart line. product_name/subtotal are written beside item_name/line_total so
+        // a reader written before the multi-item schema still finds what it expects.
+        const createdItems = [];
+        for (const line of order.items) {
+          const [itemResult] = await connection.execute(
+            `INSERT INTO order_items
+              (order_id, product_name, item_name, product_id, member_id, group_name, version_name,
+               quantity, unit_price, subtotal, line_total, configuration_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              orderId,
+              line.productName,
+              line.productName,
+              line.productId ?? null,
+              line.memberId ?? null,
+              line.groupName ?? null,
+              line.version ?? null,
+              line.quantity,
+              line.quote.unitPrice,
+              line.quote.subtotal,
+              line.quote.subtotal,
+              line.configurationJson,
+            ],
+          );
+          const orderItemId = itemResult.insertId;
 
-        await connection.execute(
-          `INSERT INTO customizer_configurations (order_item_id, configuration_json)
-           VALUES (?, ?)`,
-          [orderItemId, order.configurationJson],
-        );
+          await connection.execute(
+            `INSERT INTO customizer_configurations (order_item_id, configuration_json)
+             VALUES (?, ?)`,
+            [orderItemId, line.configurationJson],
+          );
 
-        return { orderId, orderItemId };
+          createdItems.push({
+            orderItemId,
+            productName: line.productName,
+            groupName: line.groupName || null,
+            version: line.version || null,
+            quantity: line.quantity,
+            unitPrice: line.quote.unitPrice,
+            lineTotal: line.quote.subtotal,
+            configuration: safeParse(line.configurationJson),
+          });
+        }
+
+        return { orderId, items: createdItems };
       });
 
       return {
         orderNumber,
         orderId: created.orderId,
-        orderItemId: created.orderItemId,
+        orderItemId: created.items.length ? created.items[0].orderItemId : null,
         status: 'waiting_for_payment',
-        total: order.quote.total,
+        total: order.total,
         unitPrice: order.quote.unitPrice,
         subtotal: order.quote.subtotal,
         quantity: order.quantity,
+        items: created.items,
         priceAdjusted: order.priceAdjusted,
         submittedTotal: order.submittedTotal,
         customer: order.customer,
@@ -133,7 +165,7 @@ async function getOrderByNumber(orderNumber) {
   const order = rows[0];
 
   const [items] = await pool.execute(
-    `SELECT id, product_name, quantity, unit_price, subtotal
+    `SELECT id, product_name, item_name, group_name, version_name, quantity, unit_price, subtotal, line_total
      FROM order_items WHERE order_id = ? ORDER BY id ASC`,
     [order.id],
   );
@@ -143,10 +175,12 @@ async function getOrderByNumber(orderNumber) {
     status: order.order_status,
     total: Number(order.total_amount),
     items: items.map((item) => ({
-      productName: item.product_name,
+      productName: item.item_name || item.product_name,
+      groupName: item.group_name || null,
+      versionName: item.version_name || null,
       quantity: Number(item.quantity),
       unitPrice: Number(item.unit_price),
-      subtotal: Number(item.subtotal),
+      subtotal: Number(item.line_total == null ? item.subtotal : item.line_total),
     })),
     createdAt: order.created_at,
     updatedAt: order.updated_at,
@@ -234,8 +268,9 @@ async function listOrdersAdmin({ page = 1, limit = 20, status = '', search = '' 
 
   const orderIds = rows.map((r) => r.id);
   const [itemRows] = await pool.execute(
-    `SELECT oi.id, oi.order_id, oi.product_name, oi.quantity, oi.unit_price, oi.subtotal,
-            cc.configuration_json
+    `SELECT oi.id, oi.order_id, oi.product_name, oi.item_name, oi.group_name, oi.version_name,
+            oi.quantity, oi.unit_price, oi.subtotal, oi.line_total,
+            COALESCE(oi.configuration_json, cc.configuration_json) AS configuration_json
      FROM order_items oi
      LEFT JOIN customizer_configurations cc ON cc.order_item_id = oi.id
      WHERE oi.order_id IN (${orderIds.map(() => '?').join(', ')})
@@ -254,10 +289,12 @@ async function listOrdersAdmin({ page = 1, limit = 20, status = '', search = '' 
     }
     itemsByOrder.get(item.order_id).push({
       id: item.id,
-      productName: item.product_name,
+      productName: item.item_name || item.product_name,
+      groupName: item.group_name || null,
+      versionName: item.version_name || null,
       quantity: Number(item.quantity),
       unitPrice: Number(item.unit_price),
-      subtotal: Number(item.subtotal),
+      subtotal: Number(item.line_total == null ? item.subtotal : item.line_total),
       configuration: config,
     });
   });
@@ -337,7 +374,7 @@ async function getOrderDetailAdmin(orderNumber) {
   }
 
   const [items] = await pool.execute(
-    `SELECT id, product_name, quantity, unit_price, subtotal
+    `SELECT id, product_name, item_name, group_name, version_name, quantity, unit_price, subtotal, line_total
      FROM order_items WHERE order_id = ? ORDER BY id ASC`,
     [order.id],
   );
@@ -362,10 +399,12 @@ async function getOrderDetailAdmin(orderNumber) {
       if (!configuration && cfg) configuration = cfg;
       itemsWithConfig.push({
         id: item.id,
-        productName: item.product_name,
+        productName: item.item_name || item.product_name,
+        groupName: item.group_name || null,
+        versionName: item.version_name || null,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unit_price),
-        subtotal: Number(item.subtotal),
+        subtotal: Number(item.line_total == null ? item.subtotal : item.line_total),
         configuration: cfg,
       });
     });

@@ -125,7 +125,7 @@ async function execute(sql, params = []) {
       completed_at: null,
     }]];
   }
-  if (/^SELECT id, product_name, quantity, unit_price, subtotal FROM order_items/i.test(query)) {
+  if (/^SELECT id, product_name.* FROM order_items/i.test(query)) {
     record(query, params);
     return [[{ id: 1, product_name: 'Cloud Heart', quantity: 1, unit_price: 52000, subtotal: 52000 }]];
   }

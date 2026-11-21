@@ -1,171 +1,166 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
-  const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value).replace('IDR', 'Rp').replace(/\s/g, '');
-  const raw = localStorage.getItem('locoxatl-pending-order');
-  let order;
-  try { order = raw ? JSON.parse(raw) : null; } catch { order = null; }
+  const money = (value) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(Number(value) || 0).replace('IDR', 'Rp').replace(/\s/g, '');
+  const escapeText = (value) => String(value == null ? '' : value)
+    .replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
   const form = $('#checkoutForm');
   const summary = $('#checkoutOrderSummary');
   const submitButton = form ? form.querySelector('button[type="submit"]') : null;
   const whatsapp = window.LocoxatlWhatsApp || null;
-
+  const cart = window.LocoxatlCart || null;
   if (!form || !summary) return;
 
-  if (!order || (!order.member && !order.product && !order.artist)) {
-    summary.innerHTML = '<div class="empty-state"><h2>No design selected yet.</h2><p>Choose a member and customize the keychain before checkout.</p><a class="button button-dark" href="shop.html">Browse collections <span>↗</span></a></div>';
+  const DRAFT_KEY = 'locoxatl-pending-order';
+  const mode = new URLSearchParams(window.location.search).get('mode') === 'direct' ? 'direct' : 'cart';
+
+  // The checkout draft keeps the typed details and the last saved order for the payment pages.
+  let order = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (parsed && typeof parsed === 'object') order = parsed;
+  } catch { order = {}; }
+
+  let items = [];
+  let fulfillmentMethod = order.fulfillmentMethod || 'campus_delivery';
+  let paymentMethods = [];
+  let selectedPayment = order.paymentMethod || '';
+  let busy = false;
+
+  const status = $('#checkoutStatus');
+  const notices = $('#checkoutNotices');
+
+  function setStatus(message, tone = 'info') {
+    if (!status) return;
+    status.hidden = !message;
+    status.textContent = message || '';
+    status.dataset.tone = tone;
+    status.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+  }
+
+  function setNotices(message) {
+    if (!notices) return;
+    notices.hidden = !message;
+    notices.textContent = message || '';
+  }
+
+  function setBusy(next) {
+    busy = next;
+    if (!submitButton) return;
+    submitButton.disabled = next;
+    submitButton.dataset.label = submitButton.dataset.label || submitButton.innerHTML;
+    submitButton.innerHTML = next ? 'Saving your order…' : submitButton.dataset.label;
+  }
+
+  function showEmpty(title, body) {
+    summary.innerHTML = `<div class="empty-state"><h2>${escapeText(title)}</h2><p>${escapeText(body)}</p><a class="button button-dark" href="shop.html">Browse collections <span aria-hidden="true">↗</span></a></div>`;
     if (submitButton) submitButton.disabled = true;
+  }
+
+  // ---------------------------------------------------------------- cart or direct item
+
+  function loadItems() {
+    if (mode === 'direct') {
+      const direct = cart ? cart.readDirectCheckout() : null;
+      return direct ? [direct] : [];
+    }
+    return cart ? cart.readCart() : [];
+  }
+
+  items = loadItems();
+
+  if (!items.length) {
+    showEmpty(
+      mode === 'direct' ? 'No design selected yet.' : 'Your cart is empty.',
+      mode === 'direct'
+        ? 'Customize a design in the studio, then choose Buy now.'
+        : 'Add a design from the studio before checking out.',
+    );
     return;
   }
 
-  // Shopee orders are handed to CS from the studio, so a stale URL goes back to the builder.
-  if (order.fulfillmentMethod === 'shopee_external' && !order.orderNumber) {
-    const params = new URLSearchParams();
-    if (order.artist?.slug) params.set('artist', order.artist.slug);
-    if (order.member?.slug) params.set('member', order.member.slug);
-    if (order.version) params.set('version', order.version);
-    window.location.replace(`studio.html${params.toString() ? `?${params.toString()}` : ''}`);
-    return;
-  }
+  // ---------------------------------------------------------------- summary
 
-  const member = order.member || null;
-  const config = order.configuration || {};
-
-  // The design name already carries the product, so the legacy silhouette label is not repeated.
-  function configurationText() {
-    return [...(config.addons || []).map((item) => item.name), config.initial ? `Initial ${config.initial}` : '', config.clasp?.name, ...(order.extraLabels || []), order.bundle && order.bundle.name ? `Paket ${order.bundle.name}` : ''].filter(Boolean).join(' · ');
-  }
-
-  function renderDesignSummary() {
-    $('#summaryProductName').textContent = member ? `${member.name} Keychain` : (order.product?.name || 'LOCOXATL Keychain');
-    $('#summaryArtistName').textContent = `${order.artist?.name || 'Artist collection'} / ${order.artist?.fandom || ''}`;
-    $('#summaryConfiguration').textContent = configurationText();
-    $('#summaryPrice').textContent = money(order.total || 0);
-    $('#summaryTotal').textContent = money(order.total || 0);
-  }
-
-  renderDesignSummary();
-
-  // The summary shows the same image the studio previewed, unclipped, with a text fallback.
-  const previewImage = $('#summaryProductImage');
-  const previewEmpty = $('#summaryProductEmpty');
-  const safePreview = (value) => {
-    const url = String(value == null ? '' : value).trim();
-    return /^(https?:\/\/|\/|data:image\/)/i.test(url) ? url : '';
-  };
-  const previewUrl = safePreview(order.previewImage)
-    || safePreview(order.product && order.product.imageUrl)
-    || safePreview(member && member.designImageUrl);
-  const previewLabel = order.previewLabel
-    || (member ? `${member.name} keychain` : ((order.product && order.product.name) || 'LOCOXATL keychain'));
-
-  if (previewImage) {
-    if (previewUrl) {
-      previewImage.src = previewUrl;
-      previewImage.alt = `${previewLabel} preview`;
-      previewImage.hidden = false;
-    } else {
-      previewImage.removeAttribute('src');
-      previewImage.hidden = true;
-    }
-  }
-  if (previewEmpty) {
-    previewEmpty.textContent = previewLabel;
-    previewEmpty.hidden = Boolean(previewUrl);
-  }
-
-  /**
-   * A stored selection can outlive the dashboard that published it. Anything the live catalogue no
-   * longer offers is removed before it is displayed or submitted.
-   */
-  function sanitizePendingOrder(payload) {
-    if (!payload || !Array.isArray(payload.groups)) return '';
-
-    const liveCategories = new Set((payload.optionCategories || []).map((c) => String(c.slug).toLowerCase()));
-    const liveItems = ((payload.options && payload.options.items) || [])
-      .filter((item) => item && item.isActive !== false && item.isLive !== false)
-      .map((item) => ({ key: String(item.key || '').toLowerCase(), label: item.label || '' }));
-    const liveItemKeys = new Set(liveItems.map((item) => item.key));
-    const liveItemLabels = new Set(liveItems.map((item) => item.label).filter(Boolean));
-    const liveBundles = new Set((payload.bundles || []).map((bundle) => String(bundle.id)));
-    const liveMembers = new Set((payload.members || []).map((item) => String(item.slug).toLowerCase()));
-    const liveProducts = new Set((payload.products || []).map((item) => String(item.slug).toLowerCase()));
-
-    if (member && !liveMembers.has(String(member.slug).toLowerCase())) return 'design';
-    if (!member && order.product && !liveProducts.has(String(order.product.slug).toLowerCase())) return 'design';
-
-    let changed = false;
-    const addons = (config.addons || []).filter((item) => liveItemKeys.has(String(item.id || '').toLowerCase()));
-    if (addons.length !== (config.addons || []).length) { config.addons = addons; changed = true; }
-
-    if (config.clasp && !liveItemKeys.has(String(config.clasp.id || '').toLowerCase())) {
-      config.clasp = null;
-      changed = true;
-    }
-    if (config.initial && !liveItemKeys.has('initial')) {
-      config.initial = '';
-      changed = true;
-    }
-    if (order.bundle && !liveBundles.has(String(order.bundle.id))) {
-      order.bundle = null;
-      changed = true;
-    }
-
-    if (order.selections && typeof order.selections === 'object') {
-      const next = {};
-      for (const [slug, value] of Object.entries(order.selections)) {
-        const keys = Array.isArray(value) ? value : [value];
-        if (!liveCategories.has(String(slug).toLowerCase())) { changed = true; continue; }
-        const kept = keys.filter((key) => liveItemKeys.has(String(key).toLowerCase()));
-        if (kept.length !== keys.length) changed = true;
-        if (kept.length) next[slug] = kept;
-      }
-      order.selections = next;
-    }
-
-    const extraLabels = (order.extraLabels || []).filter((label) => liveItemLabels.has(label));
-    if (extraLabels.length !== (order.extraLabels || []).length) { order.extraLabels = extraLabels; changed = true; }
-
-    if (!changed) return '';
-    try { localStorage.setItem('locoxatl-pending-order', JSON.stringify(order)); } catch { /* storage blocked */ }
-    return 'options';
-  }
-
-  const catalogReady = window.locoxatlCatalog && typeof window.locoxatlCatalog.then === 'function'
-    ? window.locoxatlCatalog
-    : Promise.resolve(null);
-
-  catalogReady.then((payload) => {
-    const result = sanitizePendingOrder(payload);
-    if (result === 'design') {
-      summary.innerHTML = '<div class="empty-state"><h2>This design is no longer available.</h2><p>Pick a design from the current collections to continue.</p><a class="button button-dark" href="shop.html">Browse collections <span>↗</span></a></div>';
-      if (submitButton) submitButton.disabled = true;
-      return;
-    }
-    if (result === 'options') {
-      renderDesignSummary();
-      setStatus('Some options are no longer available and were removed. Your total is recalculated when you continue.', 'info');
-    }
-  }).catch(() => { /* keep the stored snapshot */ });
-
-  // Delivery and payment come from the studio, and the payment list from the dashboard.
   const FULFILLMENT_LABELS = {
     campus_delivery: 'Campus delivery',
     cod_telkom: 'COD / meet-up',
     shopee_external: 'Shopee (external)',
   };
-  const fulfillmentMethod = order.fulfillmentMethod || 'campus_delivery';
-  const fulfillmentEl = $('#summaryFulfillment');
-  if (fulfillmentEl) {
-    fulfillmentEl.textContent = fulfillmentMethod === 'cod_telkom'
-      ? 'COD / meet-up — Telkom University Jakarta'
-      : (FULFILLMENT_LABELS[fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery);
+
+  function lineTotal(item) {
+    return (Number(item.unitPrice) || 0) * (Number(item.quantity) || 1);
   }
-  // COD is paid in person, so the button confirms the saved order on WhatsApp instead of
-  // continuing to the QRIS page.
-  if (fulfillmentMethod === 'cod_telkom' && submitButton) {
-    submitButton.innerHTML = 'Confirm COD via WhatsApp <span aria-hidden="true">↗</span>';
+
+  function subtotal() {
+    return items.reduce((total, item) => total + lineTotal(item), 0);
   }
+
+  function summaryText(item) {
+    return cart ? cart.configurationSummary(item) : '';
+  }
+
+  function lineLabel(item) {
+    return item.member ? `${item.member.name} Keychain` : (item.product && item.product.name) || 'LOCOXATL Keychain';
+  }
+
+  function renderSummary() {
+    const container = $('#summaryItems');
+    if (!container) return;
+
+    container.innerHTML = items.map((item, index) => {
+      const image = String(item.imageUrl || '').trim();
+      const label = lineLabel(item);
+      const group = [item.artist && item.artist.name, item.version ? `${item.version} version` : ''].filter(Boolean).join(' / ');
+      const configuration = summaryText(item);
+      return `
+        <article class="summary-product" data-summary-line="${index}">
+          <div class="summary-product-art">
+            ${image
+              ? `<img class="summary-product-image" src="${escapeText(image)}" alt="${escapeText(label)} preview" decoding="async" />`
+              : `<span class="summary-product-empty">${escapeText(label)}</span>`}
+          </div>
+          <div class="summary-product-copy">
+            <span class="eyebrow">LOCOXATL CUSTOM</span>
+            <h2>${escapeText(label)}${item.quantity > 1 ? ` <span class="summary-qty">×${item.quantity}</span>` : ''}</h2>
+            <p>${escapeText(group || 'Artist collection')}</p>
+            ${configuration ? `<p>${escapeText(configuration)}</p>` : ''}
+            <p class="summary-line-total">${money(lineTotal(item))}</p>
+          </div>
+        </article>`;
+    }).join('');
+
+    $('#summaryPrice').textContent = money(subtotal());
+    $('#summaryTotal').textContent = money(subtotal());
+    $('#summaryFulfillment').textContent = FULFILLMENT_LABELS[fulfillmentMethod] || FULFILLMENT_LABELS.campus_delivery;
+  }
+
+  // ---------------------------------------------------------------- fulfillment
+
+  const FULFILLMENT_OPTIONS = [
+    { code: 'campus_delivery', label: 'Campus delivery', detail: 'Telkom University Jakarta' },
+    { code: 'cod_telkom', label: 'COD / meet-up', detail: 'Pay in cash, confirm on WhatsApp' },
+    { code: 'shopee_external', label: 'Shopee', detail: 'CS sends the checkout link' },
+  ];
+
+  function renderFulfillment() {
+    const container = $('#fulfillmentChoices');
+    if (!container) return;
+    container.innerHTML = FULFILLMENT_OPTIONS.map((option) => {
+      const selected = fulfillmentMethod === option.code;
+      return `<button type="button" class="bundle-choice${selected ? ' selected' : ''}" data-fulfillment="${option.code}" aria-pressed="${selected}"><span>${escapeText(option.label)}<small>${escapeText(option.detail)}</small></span></button>`;
+    }).join('');
+
+    container.querySelectorAll('[data-fulfillment]').forEach((button) => {
+      button.addEventListener('click', () => {
+        fulfillmentMethod = button.dataset.fulfillment;
+        renderFulfillment();
+        renderPaymentMethods();
+        renderSummary();
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------- payment
 
   const fieldset = $('#paymentMethodFieldset');
   const choices = $('#paymentMethodChoices');
@@ -175,34 +170,33 @@
     { code: 'cash', label: 'Cash', instructions: '' },
     { code: 'transfer', label: 'Bank Transfer', instructions: '' },
   ];
-  let paymentMethods = FALLBACK_METHODS;
-  let selectedPayment = order.paymentMethod || '';
 
-  const escapeText = (value) => String(value == null ? '' : value)
-    .replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  function activeMethod(code) {
+    return paymentMethods.find((method) => method && method.code === code) || null;
+  }
 
   function renderPaymentMethods() {
     if (!choices) return;
+    const shopeeNote = $('#shopeeNote');
+    if (shopeeNote) shopeeNote.hidden = fulfillmentMethod !== 'shopee_external';
+
     // Shopee settles payment off-site, so no method is offered for that path.
     if (fulfillmentMethod === 'shopee_external') {
       if (fieldset) fieldset.hidden = true;
+      selectedPayment = '';
       if (summaryPayment) summaryPayment.textContent = 'Shopee';
       return;
     }
 
-    // COD is a different journey: no QRIS, no payment proof. The existing Cash method records
-    // how the courier is paid, and the admin sees the COD fulfillment in the dashboard.
+    // COD is a different journey: no payment proof, no QRIS page. The existing Cash method
+    // records how the courier is paid, and the admin sees the COD fulfillment in the dashboard.
     if (fulfillmentMethod === 'cod_telkom') {
       if (fieldset) fieldset.hidden = true;
-      // Prefer Cash (the accurate COD method). If the admin disabled it, never fall back to
-      // QRIS for a COD order; any other active method is a better fit.
       const codMethod = paymentMethods.find((method) => method.code === 'cash')
         || paymentMethods.find((method) => method.code !== 'qris')
         || paymentMethods[0]
         || null;
       selectedPayment = codMethod ? codMethod.code : '';
-      order.paymentMethod = selectedPayment || undefined;
-      order.payment = codMethod ? { code: codMethod.code, label: 'COD', instructions: '', imageUrl: null } : null;
       if (summaryPayment) summaryPayment.textContent = codMethod ? 'COD — pay in cash at meet-up' : 'COD';
       return;
     }
@@ -214,7 +208,7 @@
     }
 
     if (fieldset) fieldset.hidden = false;
-    if (!selectedPayment) selectedPayment = paymentMethods[0].code;
+    if (!selectedPayment || !activeMethod(selectedPayment)) selectedPayment = paymentMethods[0].code;
     choices.innerHTML = paymentMethods.map((method) => {
       const selected = method.code === selectedPayment;
       return `<button type="button" class="bundle-choice${selected ? ' selected' : ''}" data-payment="${escapeText(method.code)}" aria-pressed="${selected}"><span>${escapeText(method.label)}</span></button>`;
@@ -227,46 +221,57 @@
       });
     });
 
-    const active = paymentMethods.find((method) => method.code === selectedPayment);
+    const active = activeMethod(selectedPayment);
     if (summaryPayment) summaryPayment.textContent = active ? active.label : 'Not chosen yet';
-    order.paymentMethod = selectedPayment;
-    order.payment = {
-      code: selectedPayment,
-      label: active ? active.label : '',
-      instructions: active ? active.instructions : '',
-      imageUrl: active ? active.imageUrl : null,
-    };
   }
 
-  renderPaymentMethods();
-
-  fetch('/api/payment-methods')
-    .then((response) => (response.ok ? response.json() : null))
-    .then((data) => {
-      const list = data && Array.isArray(data.paymentMethods) ? data.paymentMethods : [];
-      if (list.length) paymentMethods = list.filter((method) => method && method.isActive !== false);
-      renderPaymentMethods();
-    })
-    .catch(() => { /* the fallback list already rendered */ });
-
-  const status = $('#checkoutStatus');
-  let busy = false;
-
-  function setStatus(message, tone = 'info') {
-    if (!status) return;
-    status.hidden = !message;
-    status.textContent = message || '';
-    status.dataset.tone = tone;
-    status.setAttribute('role', tone === 'error' ? 'alert' : 'status');
+  function loadPaymentMethods() {
+    fetch('/api/payment-methods')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const list = data && Array.isArray(data.paymentMethods) ? data.paymentMethods : [];
+        paymentMethods = list.filter((method) => method && method.isActive !== false);
+        if (!paymentMethods.length) paymentMethods = FALLBACK_METHODS;
+        renderPaymentMethods();
+      })
+      .catch(() => {
+        paymentMethods = FALLBACK_METHODS;
+        renderPaymentMethods();
+      });
   }
 
-  function setBusy(next) {
-    busy = next;
-    if (!submitButton) return;
-    submitButton.disabled = next;
-    submitButton.dataset.label = submitButton.dataset.label || submitButton.innerHTML;
-    submitButton.innerHTML = next ? 'Saving your order…' : submitButton.dataset.label;
-  }
+  renderFulfillment();
+  renderSummary();
+  loadPaymentMethods();
+
+  // ---------------------------------------------------------------- live catalogue
+
+  const catalogReady = window.locoxatlCatalog && typeof window.locoxatlCatalog.then === 'function'
+    ? window.locoxatlCatalog
+    : Promise.resolve(null);
+
+  catalogReady.then((payload) => {
+    if (!payload || !cart) return;
+    const result = cart.reconcileCartWithCatalog(items, payload);
+    items = result.items;
+
+    if (result.changed) {
+      // reconcileCartWithCatalog() already rewrote the saved cart; the direct snapshot has its
+      // own key, so it is written back here.
+      if (mode === 'direct') {
+        if (items.length) cart.writeDirectCheckout(items[0]);
+        else cart.clearDirectCheckout();
+      }
+    }
+
+    if (!items.length) {
+      showEmpty('Nothing left to check out.', 'Everything in this selection is no longer available. Pick a current design to continue.');
+      return;
+    }
+
+    if (result.notices.length) setNotices(result.notices.join(' '));
+    renderSummary();
+  }).catch(() => { /* the stored snapshot stays authoritative */ });
 
   // Restore the delivery details of an interrupted attempt so nothing has to be retyped.
   if (order.customer) {
@@ -276,31 +281,32 @@
     });
   }
 
-  /** Structured JSON snapshot of the whole customization, sent to the order API. */
+  // ---------------------------------------------------------------- submit
+
   function buildPayload() {
     return {
       customer: order.customer,
-      order: {
-        artist: order.artist,
-        member: order.member || undefined,
-        product: order.product || undefined,
-        bundle: order.bundle || undefined,
-        version: order.version || undefined,
-        fulfillmentMethod,
-        paymentMethod: order.paymentMethod || undefined,
+      fulfillmentMethod,
+      paymentMethod: fulfillmentMethod === 'shopee_external' ? undefined : (selectedPayment || undefined),
+      total: subtotal(),
+      items: items.map((item) => ({
+        artist: item.artist || undefined,
+        member: item.member || undefined,
+        product: item.product || undefined,
+        bundle: item.bundle || undefined,
+        version: item.version || undefined,
+        quantity: item.quantity || 1,
+        total: lineTotal(item),
         configuration: {
-          base: config.base,
-          addons: config.addons,
-          selections: order.selections || undefined,
-          initial: config.initial,
-          clasp: config.clasp,
-          render: config.render,
-          components: config.components || [],
+          base: item.configuration && item.configuration.base,
+          addons: item.configuration && item.configuration.addons,
+          selections: item.selections || undefined,
+          initial: item.configuration && item.configuration.initial,
+          clasp: item.configuration && item.configuration.clasp,
+          render: item.configuration && item.configuration.render,
+          components: (item.configuration && item.configuration.components) || [],
         },
-        quantity: order.quantity || 1,
-        total: order.total,
-        createdAt: order.createdAt,
-      },
+      })),
     };
   }
 
@@ -320,20 +326,40 @@
     return `We could not save your order${statusCode ? ` (error ${statusCode})` : ''}. ${message || 'Please try again.'} Your design and details are still here.`;
   }
 
-  // Keeps the design and the typed details in this browser so a failed attempt can be retried.
-  // Nothing is ever written that claims an order was placed.
+  // Keeps the typed details in this browser so a failed attempt can be retried. Nothing is
+  // ever written that claims an order was placed.
   function persistDraft() {
     const draft = { ...order, persisted: false, updatedAt: new Date().toISOString() };
     delete draft.orderNumber;
-    delete draft.persistence;
     try {
-      localStorage.setItem('locoxatl-pending-order', JSON.stringify(draft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch { /* storage blocked: the form itself still holds the values */ }
+  }
+
+  /** One line per cart item, in the shape the WhatsApp builders print. */
+  function messageItems() {
+    return items.map((item) => ({
+      name: lineLabel(item),
+      quantity: item.quantity || 1,
+      configuration: summaryText(item),
+      total: lineTotal(item),
+    }));
+  }
+
+  async function shopNumber() {
+    try {
+      const config = window.locoxatlPublicConfig
+        || fetch('/api/public-config').then((response) => (response.ok ? response.json() : null));
+      const resolved = await config;
+      return resolved && resolved.whatsappNumber ? resolved.whatsappNumber : '';
+    } catch {
+      return '';
+    }
   }
 
   /**
    * COD handoff. The order already exists in MySQL by the time this runs, so the buyer only
-   * needs to open WhatsApp with the complete order. No payment page, no QRIS, no paid status.
+   * needs to open WhatsApp with the complete order. No payment page, no paid status.
    */
   async function redirectToCodWhatsApp() {
     if (!whatsapp) {
@@ -341,44 +367,47 @@
       return;
     }
 
-    const addonNames = [
-      ...((config.addons || []).map((item) => item && item.name).filter(Boolean)),
-      ...(order.extraLabels || []),
-      config.initial ? `Initial ${config.initial}` : '',
-    ].filter(Boolean);
-    const configurationText = config.clasp?.name || '';
     const message = whatsapp.buildCodMessage({
       orderNumber: order.orderNumber,
       name: order.customer?.name || '',
       phone: order.customer?.phone || '',
-      artist: order.artist?.name || '',
-      member: member ? member.name : '',
-      product: order.product?.name || '',
-      configuration: configurationText,
-      addons: addonNames.join(', '),
-      bundle: order.bundle?.name ? `Paket ${order.bundle.name}` : '',
-      quantity: order.quantity || 1,
+      items: messageItems(),
       fulfillment: 'COD / Ketemuan — Telkom University Jakarta',
       address: order.customer?.address || '',
       note: order.customer?.note || '',
-      total: money(order.total || 0),
+      total: money(subtotal()),
     });
 
-    let number = '';
-    try {
-      const configData = window.locoxatlPublicConfig
-        || fetch('/api/public-config').then((response) => (response.ok ? response.json() : null));
-      const resolved = await configData;
-      number = resolved && resolved.whatsappNumber ? resolved.whatsappNumber : '';
-    } catch { /* the generic wa.me share sheet still works */ }
-
     setStatus(`Order ${order.orderNumber} is saved. Opening WhatsApp so you can confirm your COD order…`);
-    window.location.href = whatsapp.buildChatUrl(number, message);
+    window.location.href = whatsapp.buildChatUrl(await shopNumber(), message);
+  }
+
+  /** Shopee is settled inside Shopee: CS replies with the checkout link for this order. */
+  async function redirectToShopeeWhatsApp() {
+    if (!whatsapp) {
+      setStatus(`Order ${order.orderNumber} is saved. Message our WhatsApp CS for the Shopee checkout link.`, 'info');
+      return;
+    }
+
+    const message = whatsapp.buildShopeeMessage({
+      selection: messageItems()
+        .map((item) => `${item.name}${item.quantity > 1 ? ` (×${item.quantity})` : ''} — ${item.configuration}`)
+        .join('; '),
+      total: money(subtotal()),
+      orderNumber: order.orderNumber,
+    });
+
+    setStatus(`Order ${order.orderNumber} is saved. Opening WhatsApp so CS can send your Shopee checkout link…`);
+    window.location.href = whatsapp.buildChatUrl(await shopNumber(), message);
   }
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (busy) return;
+    if (!items.length) {
+      setStatus('Add a design to your cart before checking out.', 'error');
+      return;
+    }
     if (!form.reportValidity()) return;
 
     const data = new FormData(form);
@@ -391,7 +420,7 @@
     };
 
     // Every path except Shopee has to name the method the buyer will pay with.
-    if (fulfillmentMethod !== 'shopee_external' && !order.paymentMethod) {
+    if (fulfillmentMethod !== 'shopee_external' && !selectedPayment) {
       setStatus('Choose a payment method.', 'error');
       if (choices) choices.scrollIntoView({ block: 'center' });
       return;
@@ -436,11 +465,11 @@
 
     order.orderNumber = body.order.orderNumber;
     order.status = body.order.status || 'waiting_for_payment';
-    if (typeof body.order.total === 'number') {
-      order.total = body.order.total;
-      $('#summaryPrice').textContent = money(order.total);
-      $('#summaryTotal').textContent = money(order.total);
-    }
+    order.total = typeof body.order.total === 'number' ? body.order.total : subtotal();
+    order.items = messageItems();
+    order.fulfillmentMethod = fulfillmentMethod;
+    order.paymentMethod = fulfillmentMethod === 'shopee_external' ? null : selectedPayment;
+    order.payment = activeMethod(selectedPayment);
     order.persisted = true;
     order.persistence = {
       mode: 'mysql',
@@ -449,15 +478,27 @@
       storedAt: new Date().toISOString(),
     };
     order.updatedAt = new Date().toISOString();
-    try { localStorage.setItem('locoxatl-pending-order', JSON.stringify(order)); } catch { /* storage blocked */ }
+
+    // The cart is cleared the moment the order exists, so Back or a second click cannot submit
+    // the same designs twice.
+    if (cart) {
+      if (mode === 'direct') cart.clearDirectCheckout();
+      else cart.clearCart();
+    }
+
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(order)); } catch { /* storage blocked */ }
 
     if (body.order.priceAdjusted) {
       setStatus('The order total was recalculated from the current catalog prices.', 'info');
     }
 
-    // COD never reaches the QRIS page. QRIS and the other methods keep their existing flow.
     if (fulfillmentMethod === 'cod_telkom') {
       await redirectToCodWhatsApp();
+      return;
+    }
+
+    if (fulfillmentMethod === 'shopee_external') {
+      await redirectToShopeeWhatsApp();
       return;
     }
 

@@ -49,31 +49,15 @@
             </div>
             <div class="builder-step" id="bundleStep" hidden><div class="step-heading"><span class="step-index">00</span><div><h3>Paketan</h3><p>Pick a bundle and its add-ons come free.</p></div></div><div class="bundle-choices" id="bundleChoices" role="group" aria-label="Bundle packages"></div><p class="bundle-note" id="bundleNote" role="status" hidden></p></div>
             <div id="dynamicOptionSteps" role="group" aria-label="Option categories"></div>
-            <div class="builder-step" id="fulfillmentStep"><div class="step-heading"><span class="step-index">03</span><div><h3>How to receive it</h3><p>Pickup on campus, or order through Shopee.</p></div></div><div class="bundle-choices" id="fulfillmentChoices" role="radiogroup" aria-label="Delivery option"></div></div>
-            <div class="builder-total"><div><span>YOUR TOTAL</span><strong id="builderPrice">Rp52.000</strong></div><button class="button button-dark" id="continueToCheckout">Continue to checkout <span>↗</span></button></div>
-            <p class="builder-disclaimer">This is a preview configuration. Final production may vary slightly from the on-screen composition.</p>
+            <div class="builder-total"><div><span>YOUR TOTAL</span><strong id="builderPrice">Rp52.000</strong></div><div class="builder-actions"><button class="button button-outline" id="addToCart" type="button">Add to cart</button><button class="button button-dark" id="continueToCheckout" type="button">Buy now <span aria-hidden="true">↗</span></button></div></div>
+            <p class="checkout-status" id="studioCartStatus" role="status" hidden></p>
+            <p class="builder-disclaimer">Delivery and payment are chosen at checkout. This is a preview configuration — final production may vary slightly from the on-screen composition.</p>
           </div>
         </div>
       </div>
     </section>
-
-    <div class="modal-backdrop" id="shopeeBackdrop" hidden></div>
-    <div class="checkout-modal" id="shopeeModal" role="dialog" aria-modal="true" aria-labelledby="shopeeModalTitle" hidden>
-      <div class="checkout-header">
-        <div><span class="eyebrow">EXTERNAL CHECKOUT</span><h2 id="shopeeModalTitle">Order via Shopee.</h2></div>
-        <button type="button" class="drawer-close-btn" id="shopeeModalClose" aria-label="Close the Shopee summary">✕</button>
-      </div>
-      <div class="order-success">
-        <p>Your configuration</p>
-        <p id="shopeeSummary" class="demo-note"></p>
-        <strong id="shopeeTotal" class="order-number">Rp0</strong>
-      </div>
-      <p class="demo-note">Payment and shipping stay inside Shopee. Our CS sends the checkout link for this exact configuration, so nothing is charged on this site.</p>
-      <a class="button button-dark button-full" id="shopeeCsLink" aria-disabled="true" target="_blank" rel="noopener noreferrer">Chat CS untuk Link CO Shopee <span aria-hidden="true">↗</span></a>
-      <p class="demo-note"><button type="button" class="text-link" id="shopeeBackLink">Change delivery option</button></p>
-    </div>
   </main>
   <div data-site-footer></div>
-  <script src="src/pricing.js"></script><script src="src/options.js"></script><script src="src/catalog.js"></script><script src="src/whatsapp.js"></script><script src="src/site-shell.js"></script><script src="src/studio.js"></script>
+  <script src="src/pricing.js"></script><script src="src/options.js"></script><script src="src/catalog.js"></script><script src="src/whatsapp.js"></script><script src="src/cart.js"></script><script src="src/site-shell.js"></script><script src="src/studio.js"></script>
 </body>
 </html>

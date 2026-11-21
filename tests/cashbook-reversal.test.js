@@ -156,7 +156,7 @@ async function execute(sql, params = []) {
       completed_at: null,
     } : {}]];
   }
-  if (/^SELECT id, product_name, quantity, unit_price, subtotal FROM order_items/i.test(query)) {
+  if (/^SELECT id, product_name.* FROM order_items/i.test(query)) {
     return [orderItems.filter((item) => item.order_id === Number(params[0])).map((item) => ({ ...item }))];
   }
   if (/^SELECT id, order_item_id, configuration_json, created_at FROM customizer_configurations/i.test(query)) {

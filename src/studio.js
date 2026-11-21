@@ -83,8 +83,6 @@
     let lastPreview = { imageUrl: '', label: '' };
     // The catalogue row for this collection, once the API answers. Custom design groups use it.
     let activeGroup = null;
-    // Delivery and payment choices. Shopee is settled in Shopee, so it never asks for a method.
-    let fulfillmentMethod = 'campus_delivery';
     // Yellow or pink, when the collection page sent one. It travels with the order so the
     // server can prove the design belongs to that version.
     const activeVersion = initialVersion || null;
@@ -422,13 +420,7 @@
       });
     }
 
-    // ------------------------------------------------- delivery, custom design and Shopee
-    const FULFILLMENT_OPTIONS = [
-      { code: 'campus_delivery', label: 'Kirim ke Kampus', detail: 'Khusus Telkom University Jakarta' },
-      { code: 'cod_telkom', label: 'COD / Ketemuan', detail: 'Khusus Telkom University Jakarta' },
-      { code: 'shopee_external', label: 'Eksternal: Order via Shopee', detail: 'Chat CS untuk link CO Shopee' },
-    ];
-
+    // ------------------------------------------------------- custom design and chat handoff
     // One shared promise, so every WhatsApp control waits for the same configured number instead
     // of rendering a link before the request answers.
     const configReady = window.locoxatlPublicConfig && typeof window.locoxatlPublicConfig.then === 'function'
@@ -437,10 +429,7 @@
         .then((response) => (response.ok ? response.json() : null))
         .catch(() => null);
 
-    configReady.then(() => {
-      applyGroupNotice();
-      if ($('#shopeeModal') && !$('#shopeeModal').hidden) renderFulfillmentChoices();
-    });
+    configReady.then(() => applyGroupNotice());
 
     /**
      * Points a control at the shop chat. The configured number is used when it resolves, and the
@@ -455,25 +444,6 @@
       });
     }
 
-    /** One readable line describing the current build, used by the Shopee chat message. */
-    function describeSelection() {
-      const parts = [];
-      if (activeMember) parts.push(`${activeMember.name} keychain`);
-      else if (activeProduct && activeProduct.name) parts.push(activeProduct.name);
-      state.addons.forEach((addon) => parts.push(addon.name));
-      if (state.initial) parts.push(`Initial ${state.initial}`);
-      if (state.clasp) parts.push(state.clasp.name);
-      Object.entries(state.selections)
-        .filter(([slug]) => !ORDER_FIELDS.includes(slug))
-        .forEach(([, keys]) => keys.forEach((key) => {
-          const item = itemByKey(key);
-          if (item) parts.push(item.label);
-        }));
-      if (activeBundle) parts.push(`Paket ${activeBundle.name}`);
-      if (activeVersion) parts.push(`${activeVersion} version`);
-      return parts.filter(Boolean).join(' · ');
-    }
-
     /** Custom design collections take the artwork on WhatsApp, so the builder says so up front. */
     function applyGroupNotice() {
       const notice = $('#customDesignNotice');
@@ -485,74 +455,6 @@
         whatsapp.buildCustomDesignMessage(activeMember ? activeMember.name : artist.name),
       );
     }
-
-    function renderFulfillmentChoices() {
-      const container = $('#fulfillmentChoices');
-      if (!container) return;
-      container.innerHTML = FULFILLMENT_OPTIONS.map((option) => {
-        const selected = fulfillmentMethod === option.code;
-        return `<button type="button" class="bundle-choice${selected ? ' selected' : ''}" data-fulfillment="${option.code}" aria-pressed="${selected}"><span>${escapeHtml(option.label)}<small>${escapeHtml(option.detail)}</small></span></button>`;
-      }).join('');
-
-      container.querySelectorAll('[data-fulfillment]').forEach((button) => {
-        button.addEventListener('click', () => {
-          fulfillmentMethod = button.dataset.fulfillment;
-          renderFulfillmentChoices();
-        });
-      });
-    }
-
-    /**
-     * Shopee orders are settled in Shopee. The summary keeps the configuration together and hands
-     * the buyer a prefilled chat, so no payment method is ever shown for this path.
-     */
-    function openShopeeModal(total) {
-      const modal = $('#shopeeModal');
-      const backdrop = $('#shopeeBackdrop');
-      if (!modal) return;
-
-      const summary = $('#shopeeSummary');
-      if (summary) summary.textContent = describeSelection();
-      const totalEl = $('#shopeeTotal');
-      if (totalEl) totalEl.textContent = money(total);
-
-      applyChatLink(
-        $('#shopeeCsLink'),
-        whatsapp.buildShopeeMessage({
-          selection: describeSelection(),
-          artist: artist.name,
-          total: money(total),
-          payment: 'Shopee',
-        }),
-      );
-
-      modal.hidden = false;
-      if (backdrop) backdrop.hidden = false;
-      modal.classList.add('open');
-      if (backdrop) backdrop.classList.add('open');
-      const closeButton = $('#shopeeModalClose');
-      if (closeButton) closeButton.focus();
-    }
-
-    function closeShopeeModal() {
-      const modal = $('#shopeeModal');
-      const backdrop = $('#shopeeBackdrop');
-      if (!modal || modal.hidden) return;
-      modal.hidden = true;
-      if (backdrop) backdrop.hidden = true;
-      modal.classList.remove('open');
-      if (backdrop) backdrop.classList.remove('open');
-      const trigger = $('#continueToCheckout');
-      if (trigger) trigger.focus();
-    }
-
-    if ($('#shopeeModalClose')) $('#shopeeModalClose').addEventListener('click', closeShopeeModal);
-    if ($('#shopeeBackdrop')) $('#shopeeBackdrop').addEventListener('click', closeShopeeModal);
-    if ($('#shopeeBackLink')) $('#shopeeBackLink').addEventListener('click', closeShopeeModal);
-    document.addEventListener('keydown', (event) => {
-      const modal = $('#shopeeModal');
-      if (event.key === 'Escape' && modal && !modal.hidden) closeShopeeModal();
-    });
 
     function renderPreview() {
       // The preview shows the product image itself, unclipped. Without one it falls back to the
@@ -690,21 +592,20 @@
       update();
     });
 
-    $('#continueToCheckout').addEventListener('click', () => {
+    /** The initial letter is required once the buyer ticked personalization. */
+    function ensureInitial() {
       const letter = $('[data-initial-input]');
-      if (letter && !letter.disabled && !state.initial) {
-        letter.focus();
-        letter.setCustomValidity('Enter one letter for your initial.');
-        letter.reportValidity();
-        letter.addEventListener('input', () => letter.setCustomValidity(''), { once: true });
-        return;
-      }
+      if (!letter || letter.disabled || state.initial) return true;
+      letter.focus();
+      letter.setCustomValidity('Enter one letter for your initial.');
+      letter.reportValidity();
+      letter.addEventListener('input', () => letter.setCustomValidity(''), { once: true });
+      return false;
+    }
+
+    /** The design snapshot both cart actions hand on: the studio is the only place that builds it. */
+    function buildDesignSnapshot() {
       const total = renderPreview();
-      // Shopee hands the buyer to CS instead of a payment page, so nothing is charged here.
-      if (fulfillmentMethod === 'shopee_external') {
-        openShopeeModal(total);
-        return;
-      }
       const viewer = window.LocoxatlStudio3D;
       const snapshot = viewer && typeof viewer.getSnapshot === 'function' ? viewer.getSnapshot() : null;
       // Bundle-covered add-ons are recorded at Rp 0, so the stored configuration never reads as
@@ -719,7 +620,7 @@
         .filter(([slug]) => !ORDER_FIELDS.includes(slug))
         .flatMap(([, keys]) => keys.map((key) => (itemByKey(key) ? itemByKey(key).label : '')).filter(Boolean));
 
-      const pendingOrder = {
+      return {
         artist: { slug: artist.slug, name: artist.name, fandom: artist.fandom },
         member: activeMember
           ? { id: activeMember.id ?? null, slug: activeMember.slug, name: activeMember.name, designImageUrl: activeMember.designImageUrl || null }
@@ -727,10 +628,9 @@
         product: !activeMember && (activeProduct.id || activeProduct.slug)
           ? { id: activeProduct.id ?? null, slug: activeProduct.slug || null, name: activeProduct.name || null }
           : null,
-        version: activeVersion || undefined,
-        fulfillmentMethod,
-        previewImage: lastPreview.imageUrl || undefined,
-        previewLabel: lastPreview.label || undefined,
+        version: activeVersion || null,
+        previewImage: lastPreview.imageUrl || '',
+        previewLabel: lastPreview.label || '',
         selections: state.selections,
         extraLabels,
         bundle: activeBundle
@@ -755,11 +655,40 @@
         quantity: 1,
         createdAt: new Date().toISOString(),
       };
-      localStorage.setItem('locoxatl-pending-order', JSON.stringify(pendingOrder));
-      window.location.href = 'checkout.html';
+    }
+
+    function setCartStatus(message) {
+      const status = $('#studioCartStatus');
+      if (!status) return;
+      status.hidden = !message;
+      status.textContent = message || '';
+      status.dataset.tone = 'info';
+    }
+
+    $('#addToCart').addEventListener('click', () => {
+      if (!ensureInitial()) return;
+      const design = buildDesignSnapshot();
+      const cart = window.LocoxatlCart;
+      if (!cart) {
+        setCartStatus('The cart is unavailable in this browser. Use Buy now instead.');
+        return;
+      }
+      const result = cart.addItem(design, { quantity: 1 });
+      setCartStatus(result.added
+        ? `${design.member ? design.member.name : design.product?.name || 'Your design'} added to your cart.`
+        : `Your cart already holds ${cart.MAX_ITEMS} designs. Finish that order first.`);
+      if (result.added) cart.openDrawer();
     });
 
-    renderFulfillmentChoices();
+    $('#continueToCheckout').addEventListener('click', () => {
+      if (!ensureInitial()) return;
+      const design = buildDesignSnapshot();
+      const cart = window.LocoxatlCart;
+      // A direct checkout keeps its own key, so the saved cart is never touched by Buy now.
+      if (cart) cart.writeDirectCheckout(design);
+      window.location.href = 'checkout.html?mode=direct';
+    });
+
     renderOptionSteps();
     syncSelections();
     renderPreview();

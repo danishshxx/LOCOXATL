@@ -10,6 +10,7 @@ const serverCatalog = require('./catalog.js');
 const ALLOWED_CLASPS = new Set(options.clasps.map((clasp) => clasp.id));
 const ALLOWED_ADDONS = new Set(options.addons.map((addon) => addon.id));
 const MAX_QUANTITY = 20;
+const MAX_ITEMS = 20;
 const MAX_CONFIGURATION_BYTES = 20000;
 const VERSION_KEYS = ['yellow', 'pink'];
 // Delivery paths the storefront offers. Only the two campus options collect money through the
@@ -286,153 +287,136 @@ function catalogGroups(catalogData) {
     : serverCatalog.staticGroups();
 }
 
+/** Everything the per-line checks read, resolved once per order. */
+function catalogContext(catalogData) {
+  return {
+    strict: Boolean(catalogData && catalogData.source === 'database'),
+    products: catalogProducts(catalogData),
+    members: catalogMembers(catalogData),
+    groups: catalogGroups(catalogData),
+    pricingTable: catalogData && catalogData.options ? catalogData.options : null,
+    productSettings: catalogData && catalogData.product ? catalogData.product : null,
+    bundles: catalogData && Array.isArray(catalogData.bundles) ? catalogData.bundles : [],
+    categories: optionCategoriesFor(catalogData),
+    items: optionInventory(catalogData),
+    paymentMethods: activePaymentMethods(catalogData),
+  };
+}
+
 /**
- * Validates an order and computes the authoritative total.
- *
- * `context.catalog` is the payload from serverCatalog.loadCatalog(). When it is omitted the
- * bundled catalogue is used, which keeps this function synchronous for callers that only need
- * shape validation. When the catalogue came from MySQL (`source: 'database'`) the checks are
- * strict: the collection must be active, the design must exist inside that collection, and the
- * prices come from the live tables instead of the client payload.
+ * Validates one design line and computes its authoritative price. `prefix` namespaces the error
+ * keys of a multi-item order; a single-item order passes '' so the field names stay exactly what
+ * an older client already reports.
  */
-function validateOrderPayload(payload = {}, context = {}) {
-  const errors = {};
-  if (!payload || typeof payload !== 'object') throw new ValidationError({ body: 'A JSON object is required.' });
+function validateItem(input, ctx, prefix, errors) {
+  const item = input && typeof input === 'object' ? input : {};
+  const local = {};
+  const configuration = normalizeConfiguration(item.configuration || {}, local);
 
-  const catalogData = context && context.catalog ? context.catalog : null;
-  const strict = Boolean(catalogData && catalogData.source === 'database');
-  const products = catalogProducts(catalogData);
-  const members = catalogMembers(catalogData);
-  const groups = catalogGroups(catalogData);
-  const pricingTable = catalogData && catalogData.options ? catalogData.options : null;
-  const productSettings = catalogData && catalogData.product ? catalogData.product : null;
-  const bundles = catalogData && Array.isArray(catalogData.bundles) ? catalogData.bundles : [];
-
-  const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
-  const configuration = normalizeConfiguration(payload.order?.configuration || payload.configuration || {}, errors);
-
-  const productId = Number(payload.order?.product?.id ?? payload.productId);
-  const productSlug = cleanText(payload.order?.product?.slug || payload.productSlug, 80);
-  const memberId = Number(payload.order?.member?.id ?? payload.memberId);
-  const memberSlug = cleanText(payload.order?.member?.slug || payload.memberSlug, 64);
-  const artistSlug = cleanText(payload.order?.artist?.slug, 60);
+  const productId = Number(item.product?.id ?? item.productId);
+  const productSlug = cleanText(item.product?.slug || item.productSlug, 80);
+  const memberId = Number(item.member?.id ?? item.memberId);
+  const memberSlug = cleanText(item.member?.slug || item.memberSlug, 64);
+  const artistSlug = cleanText(item.artist?.slug, 60);
   // Member-based designs are the new path; a product id or slug keeps older clients working.
   const memberMode = Boolean(memberSlug) || (Number.isInteger(memberId) && memberId > 0);
 
-  let group = artistSlug ? groups.find((item) => item.slug === artistSlug) || null : null;
+  let group = artistSlug ? ctx.groups.find((row) => row.slug === artistSlug) || null : null;
   let member = null;
   let product = null;
 
   if (memberMode) {
-    member = findDesign(members, { id: memberId, slug: memberSlug }, (item) => (
-      (!artistSlug || item.groupSlug === artistSlug) && item.isActive !== false
+    member = findDesign(ctx.members, { id: memberId, slug: memberSlug }, (row) => (
+      (!artistSlug || row.groupSlug === artistSlug) && row.isActive !== false
     ));
 
     if (!member) {
-      errors.member_slug = strict ? 'That member design is not available right now.' : 'Unknown member design.';
+      local.member_slug = ctx.strict ? 'That member design is not available right now.' : 'Unknown member design.';
     }
     if (!group && member && member.groupSlug) {
-      group = groups.find((item) => item.slug === member.groupSlug) || null;
+      group = ctx.groups.find((row) => row.slug === member.groupSlug) || null;
     }
-    if (strict && artistSlug && !group) {
-      errors.artist_slug = 'That collection is not available right now.';
+    if (ctx.strict && artistSlug && !group) {
+      local.artist_slug = 'That collection is not available right now.';
     }
-    if (strict && member && group && member.groupSlug && member.groupSlug !== group.slug) {
-      errors.member_slug = 'That member does not belong to the selected collection.';
+    if (ctx.strict && member && group && member.groupSlug && member.groupSlug !== group.slug) {
+      local.member_slug = 'That member does not belong to the selected collection.';
     }
   } else {
-    product = findDesign(products, { id: productId, slug: productSlug });
+    product = findDesign(ctx.products, { id: productId, slug: productSlug });
 
     if (!product) {
-      errors.product_slug = strict ? 'That design is not available right now.' : 'Unknown product.';
+      local.product_slug = ctx.strict ? 'That design is not available right now.' : 'Unknown product.';
     }
-    if (strict && artistSlug && !group) {
-      errors.artist_slug = 'That collection is not available right now.';
+    if (ctx.strict && artistSlug && !group) {
+      local.artist_slug = 'That collection is not available right now.';
     }
     if (product && group && product.groupSlug && product.groupSlug !== group.slug) {
-      errors.product_slug = 'That design does not belong to the selected collection.';
+      local.product_slug = 'That design does not belong to the selected collection.';
     }
   }
 
   // A bundle package is only usable when it is active, exists in the live catalogue, and either
   // applies to every collection or to the collection this order belongs to.
-  const bundleId = Number(payload.order?.bundle?.id ?? payload.bundleId);
-  const bundleSlug = cleanText(payload.order?.bundle?.slug || payload.bundleSlug, 64).toLowerCase();
+  const bundleId = Number(item.bundle?.id ?? item.bundleId);
+  const bundleSlug = cleanText(item.bundle?.slug || item.bundleSlug, 64).toLowerCase();
   const wantsBundle = (Number.isSafeInteger(bundleId) && bundleId > 0) || Boolean(bundleSlug);
 
   let bundle = null;
   if (wantsBundle) {
     bundle = Number.isSafeInteger(bundleId) && bundleId > 0
-      ? bundles.find((item) => Number(item.id) === bundleId) || null
-      : bundles.find((item) => String(item.slug).toLowerCase() === bundleSlug) || null;
+      ? ctx.bundles.find((row) => Number(row.id) === bundleId) || null
+      : ctx.bundles.find((row) => String(row.slug).toLowerCase() === bundleSlug) || null;
 
     if (!bundle) {
-      errors.bundle = 'That bundle package is not available right now.';
+      local.bundle = 'That bundle package is not available right now.';
     } else if (bundle.isActive === false) {
-      errors.bundle = 'That bundle package is not available right now.';
+      local.bundle = 'That bundle package is not available right now.';
     } else if (bundle.groupId != null && (!group || Number(group.id) !== Number(bundle.groupId))) {
-      errors.bundle = 'That bundle package belongs to another collection.';
+      local.bundle = 'That bundle package belongs to another collection.';
     }
   }
 
-  const quantity = Number(payload.order?.quantity ?? payload.quantity ?? 1);
+  const quantity = Number(item.quantity ?? 1);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
-    errors.quantity = `Quantity must be an integer between 1 and ${MAX_QUANTITY}.`;
+    local.quantity = `Quantity must be an integer between 1 and ${MAX_QUANTITY}.`;
   }
 
   // The version the buyer picked must be the version the design belongs to.
-  const requestedVersion = cleanText(payload.order?.version, 32).toLowerCase();
+  const requestedVersion = cleanText(item.version, 32).toLowerCase();
   const chosenEntity = memberMode ? member : product;
   const entityVersion = chosenEntity && chosenEntity.versionKey
     ? String(chosenEntity.versionKey).toLowerCase()
     : null;
   if (requestedVersion && !VERSION_KEYS.includes(requestedVersion)) {
-    errors.version = 'Unknown version selection.';
+    local.version = 'Unknown version selection.';
   } else if (requestedVersion && entityVersion && entityVersion !== requestedVersion) {
-    errors.version = 'That design belongs to another version.';
+    local.version = 'That design belongs to another version.';
   }
 
-  // How the order is delivered and paid. Shopee orders are settled on Shopee, so they never
-  // carry a payment method; every other path that names a delivery option must name one too.
-  // A payload with neither field predates this flow and keeps working with campus delivery.
-  const requestedFulfillment = cleanText(payload.order?.fulfillmentMethod ?? payload.fulfillmentMethod, 32).toLowerCase();
-  const fulfillmentMethod = requestedFulfillment || DEFAULT_FULFILLMENT_METHOD;
-  if (!FULFILLMENT_METHODS.includes(fulfillmentMethod)) {
-    errors.fulfillment_method = 'Choose a valid delivery option.';
-  }
-
-  const requestedPayment = cleanText(payload.order?.paymentMethod ?? payload.paymentMethod, 32).toLowerCase();
-  let paymentMethod = requestedPayment || null;
-  if (fulfillmentMethod === 'shopee_external') {
-    paymentMethod = null;
-  } else if (requestedPayment) {
-    if (!activePaymentMethods(catalogData).some((method) => method.code === requestedPayment)) {
-      errors.payment_method = 'That payment method is not available right now.';
-    }
-  } else if (requestedFulfillment) {
-    errors.payment_method = 'Choose a payment method.';
-  }
-
-  const categories = optionCategoriesFor(catalogData);
-  const items = optionInventory(catalogData);
+  const categories = ctx.categories;
+  const items = ctx.items;
   // A category or item the dashboard switched off is rejected, never silently dropped: an order
   // must not carry a choice the storefront is no longer offering.
   const requestedSelections = configurationSelections(configuration);
   const liveSlugs = new Set(categories.map((category) => String(category.slug).toLowerCase()));
   for (const [slug, keys] of Object.entries(requestedSelections)) {
     if (!keys.length || liveSlugs.has(slug)) continue;
-    errors[slug === 'addon' ? 'addons' : slug] = 'That option is not available right now.';
+    local[slug === 'addon' ? 'addons' : slug] = 'That option is not available right now.';
   }
-  if (configuration.initial && !items.some((item) => item.key === 'initial')) {
-    errors.initial = 'Personalization is not available right now.';
+  if (configuration.initial && !items.some((option) => option.key === 'initial')) {
+    local.initial = 'Personalization is not available right now.';
   }
   const selections = offeredSelections(requestedSelections, categories);
   // The stored snapshot must not claim a clasp or add-on the catalogue never offered.
   if (!(selections.clasp && selections.clasp.length)) configuration.clasp = '';
   if (!(selections.addon && selections.addon.length)) configuration.addons = [];
-  validateSelections(selections, categories, items, errors);
+  validateSelections(selections, categories, items, local);
 
-  if (Object.keys(errors).length) throw new ValidationError(errors);
+  if (Object.keys(local).length) {
+    for (const [key, message] of Object.entries(local)) errors[prefix + key] = message;
+    return null;
+  }
 
   let pricedProduct = null;
   let memberInfo = null;
@@ -441,10 +425,10 @@ function validateOrderPayload(payload = {}, context = {}) {
 
   if (memberMode) {
     // The global base price is the fallback; a design-level override wins when one is set.
-    const globalBasePrice = productSettings && Number.isFinite(Number(productSettings.basePrice))
-      ? Number(productSettings.basePrice)
-      : (pricingTable && pricingTable.base && Number.isFinite(Number(pricingTable.base.price))
-        ? Number(pricingTable.base.price)
+    const globalBasePrice = ctx.productSettings && Number.isFinite(Number(ctx.productSettings.basePrice))
+      ? Number(ctx.productSettings.basePrice)
+      : (ctx.pricingTable && ctx.pricingTable.base && Number.isFinite(Number(ctx.pricingTable.base.price))
+        ? Number(ctx.pricingTable.base.price)
         : 45000);
     const memberOverride = member ? member.priceOverride : null;
     basePrice = memberOverride == null ? globalBasePrice : Number(memberOverride);
@@ -495,9 +479,10 @@ function validateOrderPayload(payload = {}, context = {}) {
       : undefined,
   });
   if (configurationJson.length > MAX_CONFIGURATION_BYTES) {
-    throw new ValidationError({ configuration: 'The configuration snapshot is too large.' });
+    errors[prefix + 'configuration'] = 'The configuration snapshot is too large.';
+    return null;
   }
-  const submittedTotal = Number(payload.order?.total);
+  const submittedTotal = Number(item.total);
 
   const bundleSuffix = bundle ? ` · ${bundle.name}` : '';
   const productName = memberMode
@@ -505,7 +490,6 @@ function validateOrderPayload(payload = {}, context = {}) {
     : (artistName ? `${pricedProduct.name} — ${artistName}${bundleSuffix}` : `${pricedProduct.name}${bundleSuffix}`);
 
   return {
-    customer,
     product: pricedProduct,
     member: memberInfo,
     artist: group ? { slug: group.slug, name: group.name, fandom: group.tagline || group.name.toUpperCase() } : null,
@@ -515,14 +499,114 @@ function validateOrderPayload(payload = {}, context = {}) {
     configuration,
     configurationJson,
     version: requestedVersion || entityVersion || null,
-    fulfillmentMethod,
-    paymentMethod,
     quantity,
     quote,
     submittedTotal: Number.isFinite(submittedTotal) ? submittedTotal : null,
     priceAdjusted: Number.isFinite(submittedTotal) && submittedTotal !== quote.total,
     productName,
-    source: strict ? 'database' : 'bundled',
+    productId: memberMode ? null : (pricedProduct.id ?? null),
+    memberId: memberMode ? (member.id ?? null) : null,
+    groupName: artistName || null,
+    source: ctx.strict ? 'database' : 'bundled',
+  };
+}
+
+/**
+ * Delivery and payment are decisions for the whole order: one method and one payment per
+ * checkout, however many designs the cart holds. Shopee orders are settled on Shopee, so they
+ * never carry a payment method; every other path that names a delivery option must name one too.
+ * A payload with neither field predates this flow and keeps working with campus delivery.
+ */
+function validateFulfillment(payload, ctx, errors) {
+  const requestedFulfillment = cleanText(payload.order?.fulfillmentMethod ?? payload.fulfillmentMethod, 32).toLowerCase();
+  const fulfillmentMethod = requestedFulfillment || DEFAULT_FULFILLMENT_METHOD;
+  if (!FULFILLMENT_METHODS.includes(fulfillmentMethod)) {
+    errors.fulfillment_method = 'Choose a valid delivery option.';
+  }
+
+  const requestedPayment = cleanText(payload.order?.paymentMethod ?? payload.paymentMethod, 32).toLowerCase();
+  let paymentMethod = requestedPayment || null;
+  if (fulfillmentMethod === 'shopee_external') {
+    paymentMethod = null;
+  } else if (requestedPayment) {
+    if (!ctx.paymentMethods.some((method) => method.code === requestedPayment)) {
+      errors.payment_method = 'That payment method is not available right now.';
+    }
+  } else if (requestedFulfillment) {
+    errors.payment_method = 'Choose a payment method.';
+  }
+
+  return { fulfillmentMethod, paymentMethod };
+}
+
+/**
+ * Validates an order and computes the authoritative total.
+ *
+ * A payload either carries an `items` array (a guest cart) or the legacy single `order` object.
+ * Both paths run the same per-line checks, so a multi-item order cannot carry a design, an option
+ * or a price the single-item path would have rejected.
+ *
+ * `context.catalog` is the payload from serverCatalog.loadCatalog(). When it is omitted the
+ * bundled catalogue is used, which keeps this function synchronous for callers that only need
+ * shape validation. When the catalogue came from MySQL (`source: 'database'`) the checks are
+ * strict: the collection must be active, the design must exist inside that collection, and the
+ * prices come from the live tables instead of the client payload.
+ */
+function validateOrderPayload(payload = {}, context = {}) {
+  const errors = {};
+  if (!payload || typeof payload !== 'object') throw new ValidationError({ body: 'A JSON object is required.' });
+
+  const ctx = catalogContext(context && context.catalog ? context.catalog : null);
+  const customer = normalizeCustomer(payload.customer || payload.order?.customer || {}, errors);
+  const { fulfillmentMethod, paymentMethod } = validateFulfillment(payload, ctx, errors);
+
+  const hasItemList = Array.isArray(payload.items);
+  const requestedItems = hasItemList ? payload.items : [];
+  if (hasItemList && !requestedItems.length) {
+    errors.items = 'Add at least one design to the order.';
+  } else if (requestedItems.length > MAX_ITEMS) {
+    errors.items = `An order can hold at most ${MAX_ITEMS} designs.`;
+  }
+
+  const inputs = hasItemList
+    ? requestedItems
+    : [payload.order && typeof payload.order === 'object' ? { ...payload, ...payload.order } : payload];
+
+  const items = [];
+  inputs.forEach((input, index) => {
+    const validated = validateItem(input, ctx, hasItemList ? `items[${index}].` : '', errors);
+    if (validated) items.push(validated);
+  });
+
+  if (Object.keys(errors).length) throw new ValidationError(errors);
+
+  const total = items.reduce((sum, item) => sum + item.quote.total, 0);
+  const first = items[0];
+  const submittedTotal = Number(hasItemList ? payload.total : payload.order?.total);
+
+  return {
+    customer,
+    items,
+    total,
+    fulfillmentMethod,
+    paymentMethod,
+    // The first line is mirrored at the top level so every existing caller keeps reading the
+    // fields it already knows.
+    product: first.product,
+    member: first.member,
+    artist: first.artist,
+    bundle: first.bundle,
+    configuration: first.configuration,
+    configurationJson: first.configurationJson,
+    version: first.version,
+    quantity: first.quantity,
+    quote: first.quote,
+    submittedTotal: Number.isFinite(submittedTotal) ? submittedTotal : null,
+    priceAdjusted: Number.isFinite(submittedTotal)
+      ? submittedTotal !== total
+      : items.some((item) => item.priceAdjusted),
+    productName: items.map((item) => item.productName).join(' + '),
+    source: ctx.strict ? 'database' : 'bundled',
   };
 }
 
@@ -549,6 +633,7 @@ module.exports = {
   ALLOWED_CLASPS,
   ALLOWED_ADDONS,
   MAX_QUANTITY,
+  MAX_ITEMS,
   FULFILLMENT_METHODS,
   DEFAULT_FULFILLMENT_METHOD,
 };

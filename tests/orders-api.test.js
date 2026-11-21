@@ -156,6 +156,68 @@ test('api health, validation and database errors are reported without leaking cr
   assert.ok([404, 503].includes(statusPatch.status), 'status updates need the database or return 404');
 });
 
+test('a multi-item cart payload is validated line by line over HTTP', async (t) => {
+  const server = createAppServer(root);
+  const { port } = await listenWithFallback(server, 0);
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const customer = {
+    name: 'Ayu Lestari',
+    phone: '081234567890',
+    email: 'ayu@example.com',
+    address: 'Jl. Merdeka No. 12, Bandung 40111',
+  };
+  const configuration = {
+    base: { id: 'heart' },
+    addons: [{ id: 'pearl' }],
+    selections: { addon: ['pearl'], clasp: ['silver'] },
+    clasp: { id: 'silver' },
+  };
+
+  const broken = await call(port, '/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer,
+      fulfillmentMethod: 'campus_delivery',
+      paymentMethod: 'qris',
+      items: [
+        { artist: { slug: 'blackpink' }, product: { slug: 'blackpink-cloud-heart' }, configuration, quantity: 1, total: 60000 },
+        { artist: { slug: 'blackpink' }, product: { slug: 'blackpink-not-a-design' }, configuration, quantity: 1, total: 60000 },
+      ],
+      total: 120000,
+    }),
+  });
+
+  assert.equal(broken.status, 400);
+  assert.equal(broken.json.error, 'validation_error');
+  assert.ok(broken.json.details['items[1].product_slug'], 'the failing line is named');
+  assert.equal(broken.json.details['items[0].product_slug'], undefined, 'the healthy line is not blamed');
+
+  const valid = await call(port, '/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer,
+      fulfillmentMethod: 'campus_delivery',
+      paymentMethod: 'qris',
+      items: [
+        { artist: { slug: 'blackpink' }, product: { slug: 'blackpink-cloud-heart' }, configuration, quantity: 1, total: 60000 },
+        { artist: { slug: 'blackpink' }, product: { slug: 'blackpink-soft-ribbon' }, configuration: { base: { id: 'bow' }, addons: [], selections: { addon: [], clasp: ['silver'] } }, quantity: 2, total: 112000 },
+      ],
+      total: 172000,
+    }),
+  });
+
+  if (valid.status === 201) {
+    assert.equal(valid.json.order.items.length, 2);
+    assert.equal(valid.json.order.total, 172000);
+  } else {
+    assert.equal(valid.status, 503, 'validation passed and only the database was unreachable');
+    assert.equal(valid.json.error, 'database_unavailable');
+  }
+});
+
 test('static pages keep working while the API layer is active', async (t) => {
   const server = createAppServer(root);
   const { port } = await listenWithFallback(server, 0);
