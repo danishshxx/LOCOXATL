@@ -152,13 +152,19 @@ test.after(() => {
   fs.rmSync(uploadDir, { recursive: true, force: true });
 });
 
-test('uploading an image stores a file and exposes it on the group', async () => {
+const UUID_PATTERN = /^\/uploads\/(catalog|members|groups|products)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|png|jpg|jpeg)$/;
+const storedFile = (url) => {
+  const [, , category, filename] = url.split('/');
+  return path.join(uploadDir, category, filename);
+};
+
+test('uploading an image stores a file in its category folder and exposes it on the group', async () => {
   const group = await serverCatalog.setGroupImage(1, pngDataUrl());
 
-  assert.match(group.imageUrl, /^\/assets\/uploads\/catalog\/blackpink-[a-f0-9]{12}\.png$/);
+  assert.match(group.imageUrl, UUID_PATTERN);
+  assert.match(group.imageUrl, /^\/uploads\/groups\//, 'a collection cover lands in groups/');
 
-  const filename = group.imageUrl.split('/').pop();
-  const stored = path.join(uploadDir, filename);
+  const stored = storedFile(group.imageUrl);
   assert.equal(fs.existsSync(stored), true, 'the file must be written to the upload directory');
   assert.deepEqual(fs.readFileSync(stored), Buffer.from(PNG_BASE64, 'base64'), 'the stored bytes must match');
 
@@ -166,32 +172,48 @@ test('uploading an image stores a file and exposes it on the group', async () =>
   assert.equal(publicCatalog.groups[0].imageUrl, group.imageUrl, 'the storefront catalogue carries the image');
 });
 
-test('the uploaded path is served by the static allowlist', async () => {
+test('an uploaded image is served from the upload root, never from the project directory', async () => {
   const group = await serverCatalog.getGroupById(1);
-  assert.equal(isPublicAssetPath(group.imageUrl), true);
-  assert.equal(isPublicAssetPath('/assets/uploads/catalog/../../server.js'), false);
+  assert.equal(isPublicAssetPath(group.imageUrl), false, 'uploads no longer live inside the repo');
+
+  const resolved = uploads.resolveUploadFile(group.imageUrl);
+  assert.equal(resolved.filePath, storedFile(group.imageUrl));
+  assert.equal(resolved.contentType, 'image/png');
+
+  for (const attempt of [
+    '/uploads/groups/../../server.js',
+    '/uploads/groups/..%2f..%2fserver.js',
+    '/uploads/groups/',
+    '/uploads/groups',
+    '/uploads/secrets/0e4f1e1c-0000-4000-8000-000000000000.png',
+    '/uploads/groups/not-a-uuid.png',
+    '/uploads/groups/0e4f1e1c-0000-4000-8000-000000000000.svg',
+  ]) {
+    assert.equal(uploads.resolveUploadFile(attempt), null, `${attempt} must not resolve`);
+  }
 });
 
 test('replacing an image deletes the previous file', async () => {
   const before = await serverCatalog.getGroupById(1);
-  const previousFile = path.join(uploadDir, before.imageUrl.split('/').pop());
+  const previousFile = storedFile(before.imageUrl);
   assert.equal(fs.existsSync(previousFile), true);
 
-  // A different payload produces a different content hash, so a new filename is used.
   const secondPng = Buffer.from(PNG_BASE64, 'base64');
   secondPng[secondPng.length - 1] = secondPng[secondPng.length - 1] ^ 0x01;
   const replaced = await serverCatalog.setGroupImage(1, `data:image/png;base64,${secondPng.toString('base64')}`);
 
   assert.notEqual(replaced.imageUrl, before.imageUrl);
   assert.equal(fs.existsSync(previousFile), false, 'the old file must be removed');
-  assert.equal(fs.existsSync(path.join(uploadDir, replaced.imageUrl.split('/').pop())), true);
+  assert.equal(fs.existsSync(storedFile(replaced.imageUrl)), true);
 });
 
-test('re-uploading identical bytes reuses the same file', async () => {
+test('re-uploading identical bytes stores a new file and removes the old one', async () => {
   const first = await serverCatalog.setGroupImage(1, pngDataUrl());
   const second = await serverCatalog.setGroupImage(1, pngDataUrl());
-  assert.equal(second.imageUrl, first.imageUrl);
-  assert.equal(fs.existsSync(path.join(uploadDir, first.imageUrl.split('/').pop())), true);
+
+  assert.notEqual(second.imageUrl, first.imageUrl, 'every upload gets a fresh UUID');
+  assert.equal(fs.existsSync(storedFile(first.imageUrl)), false, 'the replaced file is cleaned up');
+  assert.equal(fs.existsSync(storedFile(second.imageUrl)), true);
 });
 
 test('invalid, mismatched and oversized images are rejected', async () => {
@@ -206,7 +228,7 @@ test('invalid, mismatched and oversized images are rejected', async () => {
     (error) => error.code === 'invalid_image',
   );
 
-  // Valid PNG header, but far beyond the 3 MB limit.
+  // Valid PNG header, but far beyond the 5 MB limit.
   const oversized = Buffer.alloc(uploads.MAX_IMAGE_BYTES + 1024);
   Buffer.from(PNG_BASE64, 'base64').copy(oversized, 0);
   await assert.rejects(
@@ -216,20 +238,22 @@ test('invalid, mismatched and oversized images are rejected', async () => {
 
   // A rejected upload must leave the current image untouched.
   const group = await serverCatalog.getGroupById(1);
-  assert.match(group.imageUrl, /^\/assets\/uploads\/catalog\//);
+  assert.match(group.imageUrl, /^\/uploads\/groups\//);
 });
 
 test('only files owned by the uploader can be removed', async () => {
-  assert.equal(uploads.isManagedUrl('/assets/uploads/catalog/blackpink-0123456789ab.png'), true);
+  assert.equal(uploads.isManagedUrl('/assets/uploads/catalog/blackpink-0123456789ab.png'), true, 'legacy rows stay managed');
+  assert.equal(uploads.isManagedUrl('/uploads/groups/0e4f1e1c-0000-4000-8000-000000000000.png'), true);
   assert.equal(uploads.isManagedUrl('/assets/brand/favicon.png'), false);
   assert.equal(uploads.isManagedUrl('/assets/uploads/catalog/../../package.json'), false);
+  assert.equal(uploads.isManagedUrl('/uploads/groups/../../package.json'), false);
   assert.equal(await uploads.removeCatalogImage('/assets/brand/favicon.png'), false);
   assert.equal(fs.existsSync(path.join(__dirname, '..', 'assets', 'brand', 'favicon.png')), true);
 });
 
 test('removing the image clears the column and deletes the file', async () => {
   const group = await serverCatalog.setGroupImage(1, pngDataUrl());
-  const stored = path.join(uploadDir, group.imageUrl.split('/').pop());
+  const stored = storedFile(group.imageUrl);
   assert.equal(fs.existsSync(stored), true);
 
   const cleared = await serverCatalog.clearGroupImage(1);

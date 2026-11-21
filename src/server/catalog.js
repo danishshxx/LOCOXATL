@@ -719,7 +719,7 @@ async function resolveGroupVersions(groupSlug, incoming, previous) {
     let cover = next.coverImageUrl !== undefined ? next.coverImageUrl : (before.coverImageUrl || null);
 
     if (typeof cover === 'string' && cover.startsWith('data:image/')) {
-      const stored = await uploads.saveCatalogImage(`group-${groupSlug}-${key}`, cover);
+      const stored = await uploads.saveCatalogImage(`group-${groupSlug}-${key}`, cover, 'groups');
       if (before.coverImageUrl && before.coverImageUrl !== stored) {
         await uploads.removeCatalogImage(before.coverImageUrl);
       }
@@ -865,7 +865,7 @@ async function setGroupImage(id, dataUrl, kind = 'cover') {
   // The cover keeps the plain group slug so existing uploads keep their names; the hero gets a
   // suffix so the two images never collide in storage.
   const assetName = kind === 'hero' ? `${group.slug}-hero` : group.slug;
-  const imageUrl = await uploads.saveCatalogImage(assetName, dataUrl);
+  const imageUrl = await uploads.saveCatalogImage(assetName, dataUrl, 'groups');
 
   try {
     await getPool().execute(`UPDATE catalog_groups SET ${column} = ? WHERE id = ?`, [imageUrl, groupId]);
@@ -1059,7 +1059,7 @@ async function createBundle(input = {}) {
 
   let imageUrl = null;
   if (values.imageUrl && values.imageUrl.startsWith('data:image/')) {
-    imageUrl = await uploads.saveCatalogImage(`bundle-${values.slug}`, values.imageUrl);
+    imageUrl = await uploads.saveCatalogImage(`bundle-${values.slug}`, values.imageUrl, 'catalog');
   } else if (values.imageUrl) {
     imageUrl = values.imageUrl;
   }
@@ -1128,7 +1128,7 @@ async function updateBundle(id, input = {}) {
       assignments.push('image_url = NULL');
       storedImage = null;
     } else if (incomingImage.startsWith('data:image/')) {
-      storedImage = await uploads.saveCatalogImage(`bundle-${existing.id}`, incomingImage);
+      storedImage = await uploads.saveCatalogImage(`bundle-${existing.id}`, incomingImage, 'catalog');
       assignments.push('image_url = ?');
       params.push(storedImage);
     } else {
@@ -1282,7 +1282,7 @@ async function createProduct(input = {}) {
 
   let imageUrl = null;
   if (values.imageUrl && values.imageUrl.startsWith('data:image/')) {
-    imageUrl = await uploads.saveCatalogImage(`product-${groupId}-${slug}`, values.imageUrl);
+    imageUrl = await uploads.saveCatalogImage(`product-${groupId}-${slug}`, values.imageUrl, 'products');
   } else if (values.imageUrl) {
     imageUrl = values.imageUrl;
   }
@@ -1350,7 +1350,7 @@ async function updateProduct(id, input = {}) {
       assignments.push('image_url = NULL');
       storedImage = null;
     } else if (incomingImage.startsWith('data:image/')) {
-      storedImage = await uploads.saveCatalogImage(`product-${existing.groupId}-${existing.key}`, incomingImage);
+      storedImage = await uploads.saveCatalogImage(`product-${existing.groupId}-${existing.key}`, incomingImage, 'products');
       assignments.push('image_url = ?');
       params.push(storedImage);
     } else {
@@ -1491,14 +1491,14 @@ async function createMember(input = {}) {
 
   let portraitUrl = null;
   if (values.portraitUrl && values.portraitUrl.startsWith('data:image/')) {
-    portraitUrl = await uploads.saveCatalogImage(`member-${group.slug}-${slug}`, values.portraitUrl);
+    portraitUrl = await uploads.saveCatalogImage(`member-${group.slug}-${slug}`, values.portraitUrl, 'members');
   } else if (values.portraitUrl) {
     portraitUrl = values.portraitUrl;
   }
 
   let designImageUrl = null;
   if (values.designImageUrl && values.designImageUrl.startsWith('data:image/')) {
-    designImageUrl = await uploads.saveCatalogImage(`member-design-${group.slug}-${slug}`, values.designImageUrl);
+    designImageUrl = await uploads.saveCatalogImage(`member-design-${group.slug}-${slug}`, values.designImageUrl, 'members');
   } else if (values.designImageUrl) {
     designImageUrl = values.designImageUrl;
   }
@@ -1561,7 +1561,7 @@ async function updateMember(id, input = {}) {
       assignments.push('portrait_url = NULL');
       storedImage = null;
     } else if (incomingImage.startsWith('data:image/')) {
-      storedImage = await uploads.saveCatalogImage(`member-${existing.groupId}-${existing.slug}`, incomingImage);
+      storedImage = await uploads.saveCatalogImage(`member-${existing.groupId}-${existing.slug}`, incomingImage, 'members');
       assignments.push('portrait_url = ?');
       params.push(storedImage);
     } else {
@@ -1583,6 +1583,7 @@ async function updateMember(id, input = {}) {
       storedDesign = await uploads.saveCatalogImage(
         `member-design-${existing.groupId}-${existing.slug}`,
         incomingDesign,
+        'members',
       );
       assignments.push('design_image_url = ?');
       params.push(storedDesign);
@@ -2409,7 +2410,7 @@ async function updatePaymentMethod(code, input = {}) {
   if (values.imageUrl !== undefined) {
     let imageUrl = values.imageUrl;
     if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image/')) {
-      imageUrl = await uploads.saveCatalogImage(`payment-${methodCode}`, imageUrl);
+      imageUrl = await uploads.saveCatalogImage(`payment-${methodCode}`, imageUrl, 'catalog');
       if (existing.imageUrl && existing.imageUrl !== imageUrl) {
         await uploads.removeCatalogImage(existing.imageUrl);
       }

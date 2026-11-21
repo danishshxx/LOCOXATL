@@ -2282,9 +2282,9 @@
   // ---------------------------------------------------------------------------
   // Shared image helpers (group images, member portraits and keychain artwork)
   // ---------------------------------------------------------------------------
-  // Only URLs produced by the upload endpoint may be used as a CSS background: the local
-  // fallback directory and Cloudinary delivery URLs (used on Railway).
-  const LOCAL_UPLOAD_PATH = /^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/;
+  // Only URLs produced by the upload endpoint may be used as a CSS background: the legacy local
+  // directory, the persistent /uploads/<category>/ volume and Cloudinary delivery URLs.
+  const LOCAL_UPLOAD_PATH = /^\/(?:assets\/uploads\/catalog\/[A-Za-z0-9._-]+|uploads\/(?:catalog|members|groups|products)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|png|jpg|jpeg))$/;
   const CLOUDINARY_PATH = /^https:\/\/res\.cloudinary\.com\/[a-z0-9-]+\/image\/upload\/[A-Za-z0-9._~\-/]+$/;
 
   function safeImageUrl(url) {

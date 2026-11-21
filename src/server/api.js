@@ -28,8 +28,8 @@ const { createReportWorkbook, getReportSummary, parseScope } = require('./report
 const { getPublicConfig } = require('./public-config');
 
 const MAX_BODY_BYTES = 512 * 1024;
-// Uploads arrive as a base64 data URL, which inflates the payload by roughly a third.
-const MAX_IMAGE_BODY_BYTES = 5 * 1024 * 1024;
+// Uploads arrive as a base64 data URL, which inflates a 5 MB image to roughly 6.7 MB on the wire.
+const MAX_IMAGE_BODY_BYTES = 8 * 1024 * 1024;
 
 async function resolveAdminSession(request) {
   const token = extractAdminToken(request);

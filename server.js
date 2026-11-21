@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { handleApiRequest, sendJson } = require('./src/server/api');
+const { resolveUploadFile } = require('./src/server/uploads');
 
 const DEFAULT_PORT = 4173;
 const MIME_TYPES = {
@@ -100,6 +101,37 @@ function createAppServer(root = __dirname) {
     if (!['GET', 'HEAD'].includes(request.method)) {
       response.writeHead(405, { Allow: 'GET, HEAD' });
       response.end('Method not allowed');
+      return;
+    }
+
+    // Uploaded images live outside the project directory, so they are served from the configured
+    // upload root. Only /uploads/<category>/<uuid>.<ext> resolves; everything else is a 404.
+    if (pathname.startsWith('/uploads/')) {
+      let upload = null;
+      try {
+        upload = resolveUploadFile(pathname);
+      } catch {
+        upload = null;
+      }
+      if (!upload) {
+        response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+        response.end('Image not found');
+        return;
+      }
+      fs.readFile(upload.filePath, (error, content) => {
+        if (error) {
+          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' });
+          response.end('Image not found');
+          return;
+        }
+        response.writeHead(200, {
+          'Content-Type': upload.contentType,
+          'Content-Length': content.length,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        });
+        response.end(request.method === 'HEAD' ? undefined : content);
+      });
       return;
     }
 

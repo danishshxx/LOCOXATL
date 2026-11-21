@@ -13,6 +13,11 @@ process.env.DB_NAME = 'artist_cms_test';
 
 const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'locoxatl-artist-cms-'));
 process.env.CATALOG_UPLOAD_DIR = uploadDir;
+// /uploads/<category>/<uuid>.<ext> -> the file inside the configured upload directory.
+const storedUpload = (url) => {
+  const [, , category, filename] = String(url).split('/');
+  return path.join(uploadDir, category, filename);
+};
 // Force the local storage fallback so the suite never reaches Cloudinary.
 delete process.env.CLOUDINARY_CLOUD_NAME;
 delete process.env.CLOUDINARY_API_KEY;
@@ -376,8 +381,8 @@ test('member CRUD keeps slugs unique per group and respects ordering', async () 
 
 test('member images are validated, stored and removed safely', async () => {
   const member = await serverCatalog.createMember({ groupId: 1, name: 'Lisa', portraitUrl: pngDataUrl() });
-  assert.match(member.portraitUrl, /^\/assets\/uploads\/catalog\/member-blackpink-lisa-[a-f0-9]{12}\.png$/);
-  const stored = path.join(uploadDir, member.portraitUrl.split('/').pop());
+  assert.match(member.portraitUrl, /^\/uploads\/members\/[0-9a-f-]{36}\.png$/);
+  const stored = storedUpload(member.portraitUrl);
   assert.equal(fs.existsSync(stored), true, 'the portrait must be written to storage');
 
   await assert.rejects(
@@ -390,7 +395,7 @@ test('member images are validated, stored and removed safely', async () => {
   assert.equal(fs.existsSync(stored), false, 'clearing the portrait deletes the file');
 
   const deleting = await serverCatalog.createMember({ groupId: 1, name: 'Chaeyoung', portraitUrl: pngDataUrl() });
-  const deletingFile = path.join(uploadDir, deleting.portraitUrl.split('/').pop());
+  const deletingFile = storedUpload(deleting.portraitUrl);
   const result = await serverCatalog.deleteMember(deleting.id);
   assert.equal(result.deleted, true);
   assert.equal(fs.existsSync(deletingFile), false, 'deleting a member removes its portrait');
@@ -417,8 +422,8 @@ test('group cover and hero images are stored and replaced independently', async 
   const cover = await serverCatalog.setGroupImage(1, pngDataUrl(), 'cover');
   const hero = await serverCatalog.setGroupImage(1, pngDataUrl(), 'hero');
 
-  assert.match(cover.imageUrl, /^\/assets\/uploads\/catalog\/blackpink-[a-f0-9]{12}\.png$/);
-  assert.match(hero.heroImageUrl, /^\/assets\/uploads\/catalog\/blackpink-hero-[a-f0-9]{12}\.png$/);
+  assert.match(cover.imageUrl, /^\/uploads\/groups\/[0-9a-f-]{36}\.png$/);
+  assert.match(hero.heroImageUrl, /^\/uploads\/groups\/[0-9a-f-]{36}\.png$/);
   assert.notEqual(cover.imageUrl, hero.heroImageUrl, 'cover and hero never share a filename');
 
   const clearedHero = await serverCatalog.clearGroupImage(1, 'hero');
@@ -512,7 +517,7 @@ test('the hero image endpoint accepts ?kind=hero and rejects an unknown kind', a
   await handleApiRequest(ok.req, ok.res, ok.url);
   const body = ok.result();
   assert.equal(body.status, 200);
-  assert.match(body.body.group.heroImageUrl, /^\/assets\/uploads\/catalog\/bts-hero-[a-f0-9]{12}\.png$/);
+  assert.match(body.body.group.heroImageUrl, /^\/uploads\/groups\/[0-9a-f-]{36}\.png$/);
   assert.equal(body.body.group.imageUrl, null, 'the cover is untouched');
 });
 
@@ -536,7 +541,7 @@ test('deleting a group removes its retired catalog product rows but preserves th
 test('deleting a group cascades to its members and removes their images', async () => {
   const group = await serverCatalog.createGroup({ name: 'Temporary Group', slug: 'temporary-group' });
   const member = await serverCatalog.createMember({ groupId: group.id, name: 'Temp Member', portraitUrl: pngDataUrl() });
-  const portraitFile = path.join(uploadDir, member.portraitUrl.split('/').pop());
+  const portraitFile = storedUpload(member.portraitUrl);
   assert.equal(fs.existsSync(portraitFile), true);
 
   const result = await serverCatalog.deleteGroup(group.id);

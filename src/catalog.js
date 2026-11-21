@@ -123,9 +123,10 @@
     };
   }
 
-  // Images only ever come from the two storage backends the server writes to: the local upload
-  // directory and Cloudinary delivery URLs. Anything else is dropped instead of being rendered.
-  const UPLOAD_PATH = /^\/assets\/uploads\/catalog\/[A-Za-z0-9._-]+$/;
+  // Images only ever come from the storage backends the server writes to: the legacy local
+  // directory, the persistent /uploads/<category>/ volume and Cloudinary. Anything else is
+  // dropped instead of being rendered.
+  const UPLOAD_PATH = /^\/(?:assets\/uploads\/catalog\/[A-Za-z0-9._-]+|uploads\/(?:catalog|members|groups|products)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|png|jpg|jpeg))$/;
   const CLOUDINARY_PATH = /^https:\/\/res\.cloudinary\.com\/[a-z0-9-]+\/image\/upload\/[A-Za-z0-9._~\-/]+$/;
 
   function safeImageUrl(url) {
